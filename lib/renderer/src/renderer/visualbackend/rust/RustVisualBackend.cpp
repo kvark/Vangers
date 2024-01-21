@@ -16,7 +16,7 @@ RustVisualBackend::RustVisualBackend(int32_t width, int32_t height)
 {
 	std::cout << "RustVisualBackend::RustVisualBackend" << std::endl;
 
-	if(rv_api_1 != 1){
+	if(rv_api_2 != 1){
 		throw RendererException("Invalid libvangers_ffi version");
 	}
 
@@ -69,12 +69,13 @@ void RustVisualBackend::camera_set_transform(const Transform& transform)
 			.y = transform.position.y,
 			.z = transform.position.z + 64,
 		},
+		.scale = transform.scale,
 		.rotation = rv_quaternion {
 			.x = transform.rotation.x,
 			.y = transform.rotation.y,
 			.z = transform.rotation.z,
 			.w = transform.rotation.w,
-		}
+		},
 	};
 //	std::cout << "rv_camera_set_transform(context=" << _context << ", {" << std::endl
 //				<< "\t.position={" << v_transform.position.x << " " << v_transform.position.y << " " << v_transform.position.z << "}"<< std::endl

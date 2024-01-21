@@ -3,7 +3,7 @@ name: Vangers Windows 64bit Build
 on: [push, pull_request]
 
 env: 
-  VANGE_RS_REF: adf17c6b563b2b236847a04b5f8df3023b1d1b5b
+  VANGE_RS_REF: 8e25e16e7332d9a96cdb17b5d479c7709a02f373
 
 jobs:
   build:

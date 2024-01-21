@@ -42,6 +42,7 @@ namespace renderer::visualbackend {
 
 	struct Transform {
 		Vector3 position;
+		float scale;
 		Quaternion rotation;
 	};
 

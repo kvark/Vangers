@@ -2052,6 +2052,7 @@ void iGameMap::draw(int self)
 
 			renderer->camera_set_transform({
 			   .position = position,
+			   .scale = 1.0,
 			   .rotation = rotation,
 			});
 
