@@ -1,0 +1,12 @@
+prefix=/var/empty/local
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: Vangers Engine
+Description: Vangers game engine shared library for reinforcement learning
+Version: 
+URL: https://github.com/KranX/Vangers
+Requires: jsoncpp sdl2
+Libs: -L${libdir} -lvangers_engine
+Cflags: -I${includedir}/vangers_engine

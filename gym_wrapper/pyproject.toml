@@ -1,0 +1,81 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vangers-gym"
+version = "0.1.0"
+description = "OpenAI Gym environment wrapper for Vangers game engine"
+readme = { file = "README.md", content-type = "text/markdown" }
+authors = [
+  { name = "Vangers Gym Contributors" }
+]
+license = { text = "GPLv3" }
+requires-python = ">=3.7"
+keywords = ["reinforcement-learning", "gym", "games", "vangers"]
+
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Games/Entertainment",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: Software Development :: Libraries :: Python Modules"
+]
+
+dependencies = [
+  "gymnasium>=0.28.0",
+  "numpy>=1.20.0",
+  "opencv-python>=4.5.0",
+  "python-socketio>=5.0.0",
+  "websocket-client>=1.0.0"
+]
+
+[project.urls]
+"Bug Reports" = "https://github.com/KranX/Vangers/issues"
+"Source" = "https://github.com/KranX/Vangers"
+"Documentation" = "https://github.com/KranX/Vangers/tree/main/gym_wrapper"
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=6.0",
+  "pytest-cov>=2.0",
+  "black>=21.0",
+  "flake8>=3.8",
+  "mypy>=0.800"
+]
+rl = [
+  "stable-baselines3>=1.6.0",
+  "torch>=1.10.0",
+  "tensorboard>=2.8.0"
+]
+ray = [
+  "ray[rllib]>=2.0.0",
+  "tensorflow>=2.8.0",
+]
+viz = [
+  "matplotlib>=3.5.0",
+  "seaborn>=0.11.0",
+  "pillow>=8.0.0",
+]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["gym_wrapper*"]
+
+[tool.setuptools.package-data]
+"gym_wrapper" = [
+  "libvangers_engine*",
+  "vangers_engine*",
+  "*.md",
+  "*.txt",
+  "*.cfg",
+  "*.json"
+]

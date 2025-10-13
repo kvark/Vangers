@@ -10,9 +10,10 @@ SET(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
 # options
 OPTION(BINARY_SCRIPT "Use binary script for interface" ON)
 OPTION(DIAGEN_TEST "Dialog generator and test subsystem" OFF)
+OPTION(BUILD_SHARED_ENGINE "Build Vangers engine as shared library for gym wrapper" ON)
 
 # hide optons
-OPTION(ACTINT "Actint user interface in road game" ON) 
+OPTION(ACTINT "Actint user interface in road game" ON)
 
 SET(CMAKE_CONFIGURATION_TYPES "Release;Debug;MinSizeRel;RelWithDebInfo")
 IF(MINGW)
@@ -122,4 +123,9 @@ if(NOT ANDROID)
 	ADD_SUBDIRECTORY("lib/utils")
 	ADD_SUBDIRECTORY("server")
 	ADD_SUBDIRECTORY("surmap")
+endif()
+
+# Add gym wrapper if enabled
+if(BUILD_SHARED_ENGINE)
+	ADD_SUBDIRECTORY("gym_wrapper")
 endif()

@@ -21,7 +21,19 @@ def is_ascii(s):
     return all(ord(c) < 128 for c in s)
 
 def have_3dot(s):
-	return all(ord(c) != 133 for c in s)
+    return all(ord(c) != 133 for c in s)
+
+# Helper: in Python 3 we may have str (text) or bytes. Provide helpers that
+# safely present cp1251-decoded text where the original code intended to decode.
+def safe_decode(s):
+    if isinstance(s, bytes):
+        return s.decode("cp1251", errors="replace")
+    return s
+
+def safe_char(c):
+    if isinstance(c, bytes):
+        return c.decode("cp1251", errors="replace")
+    return c
 
 def parse_text(text):
 	START_FIND = 0
@@ -71,23 +83,23 @@ def parse_text(text):
 		elif state_fsm == TEXT:
 			if c == "\"":
 				if not have_3dot(buf_string):
-					print "ERROR: detect 3dot symbol"
-					print "TEXT:", buf_string.decode("cp1251")
+					print("ERROR: detect 3dot symbol")
+					print("TEXT:", safe_decode(buf_string))
 				if ord(buf_string[0]) < 128:
 					if not is_ascii(buf_string):
-						print "ERROR: first char is ascii but text have cp1251 symbol"
-						print "TEXT:", buf_string.decode("cp1251")
-						print "SYMBOLS:",
+						print("ERROR: first char is ascii but text have cp1251 symbol")
+						print("TEXT:", safe_decode(buf_string))
+						print("SYMBOLS:", end=" ")
 						for i, c2 in enumerate(buf_string):
 							if ord(c2) >= 127:
-								print str(i)+":"+c2.decode("cp1251"), 
-						print ""
+								print(f"{i}:{safe_char(c2)}", end=" ")
+						print()
 					text_dict[current_title]["texts_en"].append(buf_string)
 				else:
 					text_dict[current_title]["texts_ru"].append(buf_string)
 
 				state_fsm = START_FIND
-				
+
 			else:
 				buf_string += c
 		elif state_fsm == COMMAND:
@@ -100,15 +112,15 @@ def parse_text(text):
 			if c == "}":
 				if ord(buf_string[0]) < 128:
 					if not is_ascii(buf_string):
-						print "ERROR LINK: first char is ascii but text have cp1251 symbol"
-						print "LINK:", buf_string.decode("cp1251")
+						print("ERROR LINK: first char is ascii but text have cp1251 symbol")
+						print("LINK:", safe_decode(buf_string))
 					text_dict[current_title]["links_en"].append(buf_string)
 					if not text_dict[current_title]["texts_en"]:
-						print "ERROR LINK: link write before text in", current_title
+						print("ERROR LINK: link write before text in", current_title)
 				else:
 					text_dict[current_title]["links_ru"].append(buf_string)
 					if not text_dict[current_title]["texts_ru"]:
-						print "ERROR LINK: link write before text in", current_title
+						print("ERROR LINK: link write before text in", current_title)
 				state_fsm = START_FIND
 			else:
 				buf_string += c
@@ -120,7 +132,7 @@ def parse_query(text):
 	TITLE = 1
 	TEXT = 2
 	LINK = 3
-	
+
 	query_dict_eng = {"null":{"links":[], "texts":[]}}
 	query_dict_rus = {"null":{"links":[], "texts":[]}}
 	pages_rus = []
@@ -164,8 +176,8 @@ def parse_query(text):
 			if c == "}":
 				if ord(buf_string[0]) < 128:
 					if not is_ascii(buf_string):
-						print "QUERY ERROR LINK: first char is ascii but text have cp1251 symbol"
-						print "QUERY LINK:", buf_string.decode("cp1251")
+						print("QUERY ERROR LINK: first char is ascii but text have cp1251 symbol")
+						print("QUERY LINK:", safe_decode(buf_string))
 					links_eng.append(buf_string)
 					cur_page_eng["links"].append(buf_string)
 				else:
@@ -177,76 +189,76 @@ def parse_query(text):
 		elif state_fsm == TEXT:
 			if c == "\"":
 				if not have_3dot(buf_string):
-					print "QUERY ERROR: detect 3dot symbol"
-					print "QUERY TEXT:", buf_string.decode("cp1251")
+					print("QUERY ERROR: detect 3dot symbol")
+					print("QUERY TEXT:", safe_decode(buf_string))
 				if ord(buf_string[0]) < 128:
 					if not is_ascii(buf_string):
-						print "QUERY ERROR: first char is ascii but text have cp1251 symbol"
-						print "QUERY TEXT:", buf_string.decode("cp1251")
-						print "QUERY SYMBOLS:",
+						print("QUERY ERROR: first char is ascii but text have cp1251 symbol")
+						print("QUERY TEXT:", safe_decode(buf_string))
+						print("QUERY SYMBOLS:", end=" ")
 						for i, c2 in enumerate(buf_string):
 							if ord(c2) >= 127:
-								print str(i)+":"+c2.decode("cp1251"), 
-						print ""
+								print(f"{i}:{safe_char(c2)}", end=" ")
+						print()
 					cur_page_eng["texts"].append(buf_string)
 				else:
 					cur_page_rus["texts"].append(buf_string)
 
 				state_fsm = START_FIND
-				
+
 			else:
 				buf_string += c
-		
-	
+
+
 	return pages_eng, pages_rus, links_eng, links_rus, query_dict_eng, query_dict_rus
 
-def test_file(file_name):
-	text_file = open(file_name+".text")
-	query_file = open(file_name+".query")
+def process_file(file_name):
+	text_file = open(file_name + ".text")
+	query_file = open(file_name + ".query")
 	text = text_file.read()
 	query = query_file.read()
 
 	text_dict = parse_text(text)
 	eng_pages, rus_pages, eng_query_links, rus_query_links, query_dict_eng, query_dict_rus = parse_query(query)
-	
+
 
 	for link in rus_query_links:
-		if link.decode("cp1251") not in rus_pages:
-			print "Not found page for query link:", link.decode("cp1251")
+		if safe_decode(link) not in rus_pages:
+			print("Not found page for query link:", safe_decode(link))
 		else:
-			#print "Found page for link:", link.decode("cp1251")
+			# print("Found page for link:", safe_decode(link))
 			pass
 
 	for link in eng_query_links:
 		if link not in eng_pages:
-			print "Not found page for query link:", link
+			print("Not found page for query link:", link)
 		else:
-			#print "Found page for link:", link.decode("cp1251")
+			# print("Found page for link:", link)
 			pass
 
 	for title in text_dict:
-		print "Title:", title
+		print("Title:", safe_decode(title))
 		for link in text_dict[title]["links_ru"]:
-			if link.decode("cp1251") not in rus_pages:
-				print "Not found page for link:", link.decode("cp1251")
+			if safe_decode(link) not in rus_pages:
+				print("Not found page for link:", safe_decode(link))
 			else:
-				#print "Found page for link:", link.decode("cp1251")
+				# print("Found page for link:", safe_decode(link))
 				pass
 
 		for link in text_dict[title]["links_en"]:
 			if link not in eng_pages:
-				print "Not found page for link:", link
+				print("Not found page for link:", link)
 			else:
-				#print "Found page for link:", link.decode("cp1251")
+				# print("Found page for link:", link)
 				pass
 
-		
+
 		#print "Detect link in text"
 		for string in text_dict[title]["texts_ru"]:
 			if string in rus_pages:
-				print "Detect link in text", string.decode("cp1251")
+				print("Detect link in text:", safe_decode(string))
 			if string[0] == " ":
-				print "String start at space", string.decode("cp1251")
+				print("String start at space:", safe_decode(string))
 			for text in [
 				u"он сдуревших циппо",
 				u"cмог",
@@ -271,26 +283,26 @@ def test_file(file_name):
 				u"—"
 			]:
 				if text.encode("cp1251") in string:
-					print "Detect wrong word", text, " in ", string.decode("cp1251")
+					print("Detect wrong word", text, " in ", safe_decode(string))
 
 		for string in text_dict[title]["texts_en"]:
 			if string in eng_pages:
-				print "Detect link in text", string
+				print("Detect link in text:", string)
 			if string[0] == " ":
-				print "String start at space", string
+				print("String start at space:", string)
 
 	for query in query_dict_eng:
 		for text in query_dict_eng[query]["texts"]:
 			if len(text) > 340:
-				print "QUERY In", query.decode("cp1251"), " text have more 340 chars -", len(text), ":"
-				print text.decode("cp1251")
-		
+				print("QUERY In", safe_decode(query), " text have more 340 chars -", len(text), ":")
+				print(safe_decode(text))
+
 	for query in query_dict_rus:
 		for text in query_dict_rus[query]["texts"]:
 			if len(text) > 340:
-				print "QUERY In", query.decode("cp1251"), " text have more 340 chars -", len(text), ":"
-				print text.decode("cp1251")
-			
+				print("QUERY In", safe_decode(query), " text have more 340 chars -", len(text), ":")
+				print(safe_decode(text))
+
 		#print "Eng text:"
 		#for string in text_dict[title]["texts_en"]:
 		#	print string
@@ -298,7 +310,7 @@ def test_file(file_name):
 		#if text_dict[title]["links_ru"]:
 		#	print "Rus links:"
 		#	for string in text_dict[title]["links_ru"]:
-		#		print "{"+string.decode("cp1251")+"}", 
+		#		print "{"+string.decode("cp1251")+"}",
 		#	print ""
 
 		#if text_dict[title]["links_en"]:
@@ -308,6 +320,12 @@ def test_file(file_name):
 		#	print ""
 
 
-for file_name in file_list:
-	print os.path.join(dir_path, file_name)
-	test_file(file_name)
+if __name__ == "__main__":
+	if len(sys.argv) < 2:
+		print("Usage: test_links.py <dir_path>")
+		sys.exit(1)
+	dir_path = sys.argv[1]
+	for file_name in file_list:
+		fp = os.path.join(dir_path, file_name)
+		print(fp)
+		process_file(fp)

@@ -1,5 +1,5 @@
 # - Find SDL2_net library and headers
-# 
+#
 # Find module for SDL_net 2.0 (http://www.libsdl.org/projects/SDL_net/).
 # It defines the following variables:
 #  SDL2_NET_INCLUDE_DIRS - The location of the headers, e.g., SDL_net.h.
@@ -31,6 +31,7 @@ pkg_check_modules(PC_SDL2_NET QUIET SDL2_net)
 
 find_path(SDL2_NET_INCLUDE_DIR
   NAMES SDL_net.h
+  PATH_SUFFIXES include/SDL2
   HINTS
     ${PC_SDL2_NET_INCLUDEDIR}
     ${PC_SDL2_NET_INCLUDE_DIRS}
@@ -42,6 +43,7 @@ MESSAGE("SDL2_NET_INCLUDE_DIR is ${SDL2_NET_INCLUDE_DIR}")
 
 find_library(SDL2_NET_LIBRARY
   NAMES SDL2_net
+  PATH_SUFFIXES lib
   HINTS
     ${PC_SDL2_NET_LIBDIR}
     ${PC_SDL2_NET_LIBRARY_DIRS}

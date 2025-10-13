@@ -36,6 +36,8 @@ CMakeSettings.json
 /build
 /clunk
 /vangers
+/external
+__pycache__
 
 # Server env file
 .env

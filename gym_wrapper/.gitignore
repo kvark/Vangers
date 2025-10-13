@@ -1,0 +1,6 @@
+*.o
+*.o.d
+*.so
+*.so.*
+/build
+/dist
