@@ -26,6 +26,7 @@ include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/../src
     ${CMAKE_CURRENT_SOURCE_DIR}/../lib
+    ${CMAKE_CURRENT_SOURCE_DIR}/../lib/xsound
     ${CMAKE_CURRENT_SOURCE_DIR}/../lib/xgraph
     ${CMAKE_CURRENT_SOURCE_DIR}/../lib/xtool
     ${SDL2_INCLUDE_DIR}
@@ -52,11 +53,42 @@ if(BUILD_SHARED_ENGINE)
         vangers_engine_lib.cpp
     )
 
-    # Create shared engine library for in-process execution
+    # Engine core sources (full engine compiled as separate static lib)
+    file(GLOB_RECURSE ENGINE_CORE_SOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/../src/*.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/../src/*/*.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/../lib/*.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/../lib/*/*.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/../lib/xgraph/*.cpp
+    )
+
+    # Build engine core as static library
+    add_library(vangers_core STATIC
+        ${ENGINE_CORE_SOURCES}
+    )
+
+    target_include_directories(vangers_core PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../src
+        ${CMAKE_CURRENT_SOURCE_DIR}/../lib
+        ${CMAKE_CURRENT_SOURCE_DIR}/../lib/xgraph
+    )
+
+    # Create shared engine library for in-process execution (wrapper)
     add_library(vangers_engine SHARED
         ${ENGINE_LIB_SOURCES}
         ${ENGINE_LIB_HEADERS}
     )
+
+    # Link engine core into the shared wrapper library. Use PUBLIC so that
+    # consumers of the shared library (example binaries) also link the
+    # transitive dependencies resolved by the engine core and third-party
+    # libraries.
+    #
+    # The engine core depends on the helper/utility static library `xtool`
+    # (which contains iniparser and related objects). Ensure the shared
+    # vangers_engine target links xtool as well so symbols such as the
+    # iniparser functions are provided to the produced shared library.
+    target_link_libraries(vangers_engine PUBLIC vangers_core xtool)
 
     # Compiler flags for shared library
     target_compile_options(vangers_engine PRIVATE
@@ -73,7 +105,13 @@ if(BUILD_SHARED_ENGINE)
     endif()
 
     # Link libraries for shared engine
-    target_link_libraries(vangers_engine
+    target_link_libraries(vangers_engine PRIVATE
+        ${CLUNK_LIBRARY}
+        ${FFMPEG_LIBRARIES}
+        ${ZLIB_LIBRARIES}
+        ${OGG_LIBRARY}
+        ${VORBIS_LIBRARY}
+        ${VORBISFILE_LIBRARY}
         ${SDL2_LIBRARY}
         pthread
         dl
@@ -82,11 +120,11 @@ if(BUILD_SHARED_ENGINE)
     )
 
     if(JSONCPP_FOUND)
-        target_link_libraries(vangers_engine ${JSONCPP_LIBRARIES})
+        target_link_libraries(vangers_engine PRIVATE ${JSONCPP_LIBRARIES})
     endif()
 
     if(SDL2_NET_FOUND)
-        target_link_libraries(vangers_engine ${SDL2_NET_LIBRARIES})
+        target_link_libraries(vangers_engine PRIVATE ${SDL2_NET_LIBRARIES})
     endif()
 
     # Set shared library properties

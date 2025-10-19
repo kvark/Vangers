@@ -89,7 +89,42 @@ extern "C" {
 }
 
 // C++ implementation classes
+//
+// The engine initialization functions are declared in the global namespace so
+// linkage matches the engine core implementation. They are intentionally placed
+// here (before the vangers_engine namespace) to avoid conflicting declarations
+// and to ensure the wrapper calls the same global symbols the engine provides.
+extern void graph3d_init();
+extern void GeneralSystemInit();
+extern void uniVangPrepare();
+extern void GeneralSystemOpen();
+
 namespace vangers_engine {
+
+// (engine init declarations moved to global scope to match engine core linkage)
+
+// Internal game state (moved from module statics into instance state)
+// Moved to namespace scope so the GameSimulation class can reference it
+// without being forced to carry the full nested definition in the header.
+struct MinimalPlayerState {
+    float pos_x = 256.0f * 256.0f;
+    float pos_y = 256.0f * 256.0f;
+    float pos_z = 0.0f;
+    float vel_x = 0.0f;
+    float vel_y = 0.0f;
+    float vel_z = 0.0f;
+    float angle = 0.0f;
+    int armor = 100;
+    int armor_max = 100;
+    int energy = 100;
+    int energy_max = 100;
+    int speed = 0;
+    int max_speed = 200;
+    bool alive = true;
+    bool on_ground = true;
+    bool in_water = false;
+    int step_count = 0;
+};
 
 // Action representation
 struct Action {
@@ -215,6 +250,8 @@ private:
     void process_action();
     void advance_physics(int steps);
     void handle_game_events();
+    // Event counter moved from function-local static to instance member to avoid module-level statics
+    int event_counter_ = 0;
     
     // Event callbacks (called by game engine)
     void on_collision(VangerUnit* unit, GeneralObject* obj, float damage);
@@ -234,7 +271,11 @@ class GameSimulation {
 public:
     GameSimulation(int width, int height);
     ~GameSimulation();
-    
+
+    // Accessors for internal player state (exposed publicly for wrapper)
+    const MinimalPlayerState& get_internal_player_state() const { return player_state_; }
+    MinimalPlayerState& access_internal_player_state() { return player_state_; }
+
     bool initialize();
     void shutdown();
     void reset();
@@ -272,11 +313,27 @@ private:
     float time_scale_ = 1.0f;
     bool deterministic_mode_ = true;
     
-    // Internal game state
+    // Internal game state (moved from module statics into instance state)
+    // The struct definition was moved to namespace scope above; keep the
+    // per-instance storage here as a simple member.
+    MinimalPlayerState player_state_;              // replaces previous `g_player_state`
     uint64_t frame_count_ = 0;
     uint64_t last_physics_time_ = 0;
     
-    // Callbacks (disabled in minimal implementation)
+    // Legacy RNG seeds used by wrapper-level deterministic features
+    unsigned rng_seed_ = 12345;
+    unsigned legacy_rndval_ = 83;
+    unsigned legacy_real_rndval_ = 12345;
+    
+    // Engine / wrapper initialization flags moved into instance state
+    bool game_initialized_ = false;                // replaces previous `g_GameInitialized`
+    bool gym_mode_enabled_ = false;                // replaces previous `g_gym_mode_enabled`
+    
+    // Reference to owning engine instance manager (optional convenience)
+    // Note: this is not an owning pointer; InstanceManager remains responsible for instances.
+    void* owning_instance_id_ = nullptr;
+    
+    // Callbacks (disabled for minimal implementation)
     // std::function<void(VangerUnit*, GeneralObject*, float)> collision_callback_;
     // std::function<void(VangerUnit*, StuffObject*)> item_callback_;
     // std::function<void()> objective_callback_;
@@ -287,6 +344,12 @@ private:
     void create_game_map();
     void setup_deterministic_mode();
     void disable_real_time_features();
+    
+    // Accessors for the moved state were relocated to the public section above.
+    void set_game_initialized(bool v) { game_initialized_ = v; }
+    bool is_game_initialized() const { return game_initialized_; }
+    void set_gym_mode_enabled(bool v) { gym_mode_enabled_ = v; }
+    bool is_gym_mode_enabled() const { return gym_mode_enabled_; }
     
     // Game engine integration
     void init_graphics_headless();
@@ -307,13 +370,40 @@ public:
     void cleanup_all();
     size_t get_num_instances() const;
     
+    // Engine-wide flags / state that were previously module-level statics.
+    // These are now managed by the instance manager which has process-lifetime scope.
+    void set_gym_mode(bool enabled) {
+        std::lock_guard<std::mutex> lock(instances_mutex_);
+        gym_mode_enabled_ = enabled;
+    }
+    bool get_gym_mode() const {
+        std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(instances_mutex_));
+        return gym_mode_enabled_;
+    }
+    
+    // Track the current active instance (if any). This replaces the previous global pointer.
+    void set_current_instance(GameEngineInstance* instance) {
+        std::lock_guard<std::mutex> lock(instances_mutex_);
+        current_instance_ = instance;
+    }
+    GameEngineInstance* get_current_instance() const {
+        std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(instances_mutex_));
+        return current_instance_;
+    }
+    
 private:
     InstanceManager() = default;
     ~InstanceManager();
     
     std::unordered_map<void*, std::unique_ptr<GameEngineInstance>> instances_;
-    std::mutex instances_mutex_;
+    mutable std::mutex instances_mutex_;
     std::atomic<uintptr_t> next_id_{1};
+    
+    // Moved globals (now per-process state managed via InstanceManager)
+    bool gym_mode_enabled_ = false;               // replaces previous `g_gym_mode_enabled`
+    GameEngineInstance* current_instance_ = nullptr; // replaces previous `g_current_instance`
+    // Engine initialization flag for the wrapper/core, moved here from module-level static
+    bool engine_initialized_ = false;
 };
 
 // Utility functions
@@ -355,6 +445,7 @@ namespace util {
 // Global initialization (called once when library loads)
 extern "C" {
     int vangers_engine_init();
+    int vangers_engine_init_with_path(const char* resource_path);
     void vangers_engine_cleanup();
     
     // Debugging and diagnostics

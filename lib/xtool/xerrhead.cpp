@@ -55,7 +55,12 @@ void XErrorHandler::Abort(const char* message, int code, int val, const char* su
   strftime(time_buf, sizeof time_buf, "%Y-%m-%dT%H:%M:%SZ", gmtime(&now));
   stream<<time_buf<<" "<<std::endl;
 
+#if defined(GIT_BRANCH) && defined(GITHUB_BRANCH) && defined(GIT_COMMIT_HASH) && defined(GITHUB_COMMIT_HASH)
   stream<<GIT_BRANCH<<GITHUB_BRANCH<<" "<<GIT_COMMIT_HASH<<GITHUB_COMMIT_HASH<<std::endl<<std::endl;
+#else
+  // If build-system/git metadata macros aren't provided, emit a safe placeholder.
+  stream<<"<no-git-info>"<<std::endl<<std::endl;
+#endif
 
   stream<<"Abort: "<<message<<" code:"<<code<<" val:"<<val<<std::endl;
   std::cout<<"Abort: "<<message<<" code:"<<code<<" val:"<<val<<std::endl;
