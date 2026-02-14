@@ -125,8 +125,9 @@ class PeriodicSaveCallback(BaseCallback):
         except Exception:
             pass
         # Timeout check (wall-clock)
-        if getattr(self, "timeout_seconds", None) is not None:
-            if (time.time() - self._start_time) >= self.timeout_seconds:
+        ts = getattr(self, "timeout_seconds", None)
+        if ts is not None:
+            if (time.time() - self._start_time) >= float(ts):
                 if self.verbose:
                     print("[callback] Timeout reached, stopping training.")
                 return False
@@ -299,6 +300,10 @@ def renderer_in_memory_loop(
 
     print("[renderer] Starting in-memory preview renderer.")
     preview_env = VangersEnv(width=render_width, height=render_height, render_mode="rgb_array")
+    try:
+        preview_env.engine_lib.set_render_mode(preview_env.instance.instance_ptr, 1)
+    except Exception:
+        pass
     # Try to set fast-forward time scale
     try:
         preview_env.engine_lib.set_time_scale(preview_env.instance.instance_ptr, float(play_speed))
@@ -382,7 +387,30 @@ def renderer_in_memory_loop(
                 # Predict with lock (snapshot should be safe but we keep a short lock for consistency)
                 try:
                     with model_lock:
-                        action, _ = model.predict(obs_for_model, deterministic=True)
+                        # Ensure batch dimension and correct shapes for dict observation
+                        if isinstance(obs_for_model, dict):
+                            scr = obs_for_model.get('screen')
+                            st = obs_for_model.get('state')
+                            if isinstance(scr, np.ndarray) and scr.ndim == 3:
+                                scr = scr[None, ...]
+                            if isinstance(st, np.ndarray) and st.ndim == 1:
+                                st = st[None, ...]
+                            obs_batched = {'screen': scr, 'state': st}
+                        else:
+                            obs_batched = obs_for_model
+                        act, _ = model.predict(obs_batched, deterministic=True)
+                        action = np.asarray(act)
+                        if action.ndim == 2 and action.shape[0] == 1:
+                            action = action[0]
+                        action = action.reshape(-1)
+                        if action.size < 5:
+                            padded = np.zeros(5, dtype=np.int64)
+                            padded[:action.size] = action
+                            action = padded
+                        else:
+                            action = action[:5]
+                        nvec = np.array([3, 3, 2, 2, 2], dtype=np.int64)
+                        action = np.mod(action.astype(np.int64), nvec)
                 except Exception:
                     # fallback action
                     action = np.zeros(5, dtype=int)
@@ -499,6 +527,10 @@ def renderer_loop(
 
     preview_env = VangersEnv(width=render_width, height=render_height, render_mode="rgb_array")
     try:
+        preview_env.engine_lib.set_render_mode(preview_env.instance.instance_ptr, 1)
+    except Exception:
+        pass
+    try:
         preview_env.engine_lib.set_time_scale(preview_env.instance.instance_ptr, float(play_speed))
     except Exception:
         pass
@@ -604,7 +636,30 @@ def renderer_loop(
                             obs_for_model = obs
 
                 try:
-                    action, _ = loaded_model.predict(obs_for_model, deterministic=True)
+                    # Ensure batch dimension and correct shapes for dict observation
+                    if isinstance(obs_for_model, dict):
+                        scr = obs_for_model.get('screen')
+                        st = obs_for_model.get('state')
+                        if isinstance(scr, np.ndarray) and scr.ndim == 3:
+                            scr = scr[None, ...]
+                        if isinstance(st, np.ndarray) and st.ndim == 1:
+                            st = st[None, ...]
+                        obs_batched = {'screen': scr, 'state': st}
+                    else:
+                        obs_batched = obs_for_model
+                    act, _ = loaded_model.predict(obs_batched, deterministic=True)
+                    action = np.asarray(act)
+                    if action.ndim == 2 and action.shape[0] == 1:
+                        action = action[0]
+                    action = action.reshape(-1)
+                    if action.size < 5:
+                        padded = np.zeros(5, dtype=np.int64)
+                        padded[:action.size] = action
+                        action = padded
+                    else:
+                        action = action[:5]
+                    nvec = np.array([3, 3, 2, 2, 2], dtype=np.int64)
+                    action = np.mod(action.astype(np.int64), nvec)
                 except Exception:
                     action = np.zeros(5, dtype=int)
 

@@ -702,6 +702,8 @@ void aRedraw(void)
 
 void actIntQuant(void)
 {
+	if(!aScrDisp)
+		return;
 	actintActiveFlag = 1;
 	aScrDisp -> KeyQuant();
 	aScrDisp -> EventQuant();
@@ -4947,12 +4949,14 @@ void aciPromptData::quant(void)
 
 void aciSendPrompt(aciPromptData* p)
 {
+	if(!aScrDisp) return;
 	aScrDisp -> curPrompt -> copy_data(p);
 	aScrDisp -> curPrompt -> CurTimer = 0;
 }
 
 void aciActivateItemFunction(int itemID,int fncID)
 {
+	if(!aScrDisp) return;
 	fncMenu* m = NULL;
 	invItem* p = aScrDisp -> get_item(itemID);
 	if(p && p -> menu){
@@ -4966,6 +4970,7 @@ void aciActivateItemFunction(int itemID,int fncID)
 
 void aciDeactivateItemFunction(int itemID,int fncID)
 {
+	if(!aScrDisp) return;
 	fncMenu* m = NULL;
 	invItem* p = aScrDisp -> get_item(itemID);
 	if(p && p -> menu){

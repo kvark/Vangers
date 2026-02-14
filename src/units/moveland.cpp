@@ -1738,7 +1738,7 @@ void VLload(void)
 //#endif
 #endif
 		ff.close();
-		}	      
+	}	      
 
 #ifdef _ROAD_
 	NumAddDanger = MaxAddDanger[CurrentWorld];

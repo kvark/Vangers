@@ -244,7 +244,6 @@ void ItemsDispatcher::Open(Parser& in)
 	uvsItem* n;
 	int i,j;
 	UnitList::Open(in);
-
 	for(i = 0;i < Total;i++) UnitData[i]->Open();
 	GeneralMousePoint = Vector(83,0,0);
 

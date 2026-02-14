@@ -99,6 +99,7 @@ int TimeSecretType[2][MAX_TIME_SECRET] = {{UVS_ITEM_TYPE::PEELOT,UVS_ITEM_TYPE::
 
 int ThreallMessageProcess;
 extern uvsVanger *Gamer;
+
 void StaticOpen(void)
 {
 	int i,j;

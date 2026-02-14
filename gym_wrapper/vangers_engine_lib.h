@@ -60,9 +60,14 @@ extern "C" {
         float x, y;           // Event world position
         uint64_t timestamp;   // Game timestamp
     };
+
+    struct VangersCreateOptions {
+        uint32_t size;        // sizeof(VangersCreateOptions)
+        int headless;         // 0 = normal, 1 = SDL dummy driver
+    };
     
     // C API functions
-    void* vangers_create_instance(int width, int height);
+    void* vangers_create_instance(int width, int height, const VangersCreateOptions* options);
     void vangers_destroy_instance(void* instance);
     int vangers_reset_instance(void* instance);
     
@@ -166,6 +171,9 @@ public:
     bool initialize();
     void shutdown();
     int reset();
+
+    void set_headless_mode(bool headless);
+    bool get_headless_mode() const { return headless_mode_; }
     
     // Simulation control (deterministic)
     int step_simulation(int num_steps = 1);
@@ -240,6 +248,7 @@ private:
     uint64_t simulation_step_count_ = 0;
     uint64_t last_update_time_ = 0;
     bool initialized_ = false;
+    bool headless_mode_ = false;
     
     // Master mutex for state consistency
     mutable std::mutex state_mutex_;
@@ -288,6 +297,9 @@ public:
     
     void apply_action(const Action& action);
     void render_frame(unsigned char* buffer, int width, int height);
+
+    void set_headless_mode(bool headless) { headless_mode_ = headless; }
+    bool is_headless_mode() const { return headless_mode_; }
     
     // Event callbacks (disabled for minimal implementation)
     void set_collision_callback(std::function<void(void*, void*, float)>) {
@@ -312,6 +324,7 @@ private:
     int screen_width_, screen_height_;
     float time_scale_ = 1.0f;
     bool deterministic_mode_ = true;
+    bool headless_mode_ = false;
     
     // Internal game state (moved from module statics into instance state)
     // The struct definition was moved to namespace scope above; keep the
@@ -364,6 +377,7 @@ public:
     static InstanceManager& instance();
     
     void* create_instance(int width, int height);
+    void* create_instance_with_options(int width, int height, bool headless);
     void destroy_instance(void* handle);
     GameEngineInstance* get_instance(void* handle);
     

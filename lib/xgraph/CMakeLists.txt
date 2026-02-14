@@ -16,3 +16,6 @@ else()
 	TARGET_LINK_LIBRARIES(xgraph ${SDL2_LIBRARY})
 endif()
 
+target_include_directories(xgraph PRIVATE
+	"${PROJECT_SOURCE_DIR}/lib/xtool"
+)

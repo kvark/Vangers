@@ -1942,27 +1942,27 @@ void vrtMap::scaling(int XSrcSize,int cx,int cy,int xc,int yc,int xside,int ysid
 		else
 #endif
 		if(k_xscr_x == 1 << 16){
-			fx = XCYCL(tfx >> 16);
-			if(fx + xsize < H_SIZE)
-				for(i = 0;i < ysize;i++){
-					fy = tfy;
+				fx = XCYCL(tfx >> 16);
+				if(fx + xsize < H_SIZE)
+					for(i = 0;i < ysize;i++){
+						fy = tfy;
 					data = ltc[YCYCL(fy >> 16)] + fx;
 					memcpy(vp,data,xsize);
 					tfy += k_yscr_y;
 					vp += xsize + XADD;
 					}
-			else {
-				int sz1 = H_SIZE - fx;
-				int sz2 = fx + xsize - H_SIZE;
-				for(i = 0;i < ysize;i++){
-					fy = tfy;
+				else {
+					int sz1 = H_SIZE - fx;
+					int sz2 = fx + xsize - H_SIZE;
+					for(i = 0;i < ysize;i++){
+						fy = tfy;
 					data = ltc[YCYCL(fy >> 16)];
 					memcpy(vp,data + fx,sz1);
 					memcpy(vp + sz1,data,sz2);
 
 					tfy += k_yscr_y;
 					vp += xsize + XADD;
-					}
+						}
 				}
 			return;
 			}

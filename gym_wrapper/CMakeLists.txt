@@ -1,4 +1,4 @@
-CMAKE_MINIMUM_REQUIRED(VERSION 3.1.0)
+CMAKE_MINIMUM_REQUIRED(VERSION 3.10)
 
 PROJECT(vangers_gym_wrapper)
 
@@ -8,18 +8,21 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Main option for building shared engine library
 OPTION(BUILD_SHARED_ENGINE "Build Vangers engine as shared library for gym wrapper" ON)
 
+# Add parent cmake modules path (for FindClunk, FindSDL2, FindSDL2_net, FindFFMPEG, etc.)
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../cmake")
+
 # Find required packages
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(JSONCPP jsoncpp)
 
-# Find SDL2 (required by game engine)
 find_package(SDL2 REQUIRED)
-find_package(SDL2_net)
-if(NOT SDL2_NET_FOUND)
-    message(WARNING "SDL2_net not found. Some networking features will be disabled.")
-    set(SDL2_NET_LIBRARIES "")
-    set(SDL2_NET_INCLUDE_DIRS "")
-endif()
+find_package(SDL2_net REQUIRED)
+find_package(Clunk REQUIRED)
+find_package(FFMPEG REQUIRED)
+find_package(ZLIB REQUIRED)
+find_package(Ogg REQUIRED)
+find_package(Vorbis REQUIRED)
+find_package(VorbisFile REQUIRED)
 
 # Include directories
 include_directories(
@@ -30,14 +33,17 @@ include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/../lib/xgraph
     ${CMAKE_CURRENT_SOURCE_DIR}/../lib/xtool
     ${SDL2_INCLUDE_DIR}
+    ${SDL2_NET_INCLUDE_DIRS}
+    ${CLUNK_INCLUDE_DIR}
+    ${FFMPEG_INCLUDE_DIRS}
+    ${ZLIB_INCLUDE_DIR}
+    ${OGG_INCLUDE_DIR}
+    ${VORBIS_INCLUDE_DIR}
+    ${VORBISFILE_INCLUDE_DIR}
 )
 
 if(JSONCPP_FOUND)
     include_directories(${JSONCPP_INCLUDE_DIRS})
-endif()
-
-if(SDL2_NET_FOUND)
-    include_directories(${SDL2_NET_INCLUDE_DIRS})
 endif()
 
 # Only build if BUILD_SHARED_ENGINE is enabled
@@ -55,11 +61,9 @@ if(BUILD_SHARED_ENGINE)
 
     # Engine core sources (full engine compiled as separate static lib)
     file(GLOB_RECURSE ENGINE_CORE_SOURCES
-        ${CMAKE_CURRENT_SOURCE_DIR}/../src/*.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/../src/*/*.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/../lib/*.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/../lib/*/*.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/../lib/xgraph/*.cpp
+        "${CMAKE_CURRENT_SOURCE_DIR}/../src/*.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../lib/*.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../lib/xtool/iniparser/*.c"
     )
 
     # Build engine core as static library
@@ -67,10 +71,26 @@ if(BUILD_SHARED_ENGINE)
         ${ENGINE_CORE_SOURCES}
     )
 
+    # Ensure -fPIC for static library linked into shared lib
+    set_property(TARGET vangers_core PROPERTY POSITION_INDEPENDENT_CODE ON)
+
+    # Definitions needed by core
+    target_compile_definitions(vangers_core PUBLIC
+        -DVANGERS_ENGINE_SHARED
+        -DHEADLESS_MODE
+        -DDETERMINISTIC_MODE
+        -D_USE_MATH_DEFINES
+        -DACTINT
+        -D_BINARY_SCRIPT_
+    )
+
     target_include_directories(vangers_core PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/../src
         ${CMAKE_CURRENT_SOURCE_DIR}/../lib
         ${CMAKE_CURRENT_SOURCE_DIR}/../lib/xgraph
+        ${SDL2_INCLUDE_DIR}
+        ${SDL2_NET_INCLUDE_DIRS}
+        ${CLUNK_INCLUDE_DIR}
     )
 
     # Create shared engine library for in-process execution (wrapper)
@@ -83,20 +103,11 @@ if(BUILD_SHARED_ENGINE)
     # consumers of the shared library (example binaries) also link the
     # transitive dependencies resolved by the engine core and third-party
     # libraries.
-    #
-    # The engine core depends on the helper/utility static library `xtool`
-    # (which contains iniparser and related objects). Ensure the shared
-    # vangers_engine target links xtool as well so symbols such as the
-    # iniparser functions are provided to the produced shared library.
-    target_link_libraries(vangers_engine PUBLIC vangers_core xtool)
+    target_link_libraries(vangers_engine PUBLIC vangers_core)
 
     # Compiler flags for shared library
     target_compile_options(vangers_engine PRIVATE
-        -Wall -Wextra -fPIC
-        -DVANGERS_ENGINE_SHARED
-        -DHEADLESS_MODE
-        -DDETERMINISTIC_MODE
-        -D_USE_MATH_DEFINES
+        -Wall -Wextra
     )
 
     if(JSONCPP_FOUND)

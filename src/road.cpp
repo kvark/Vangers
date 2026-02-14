@@ -1892,7 +1892,7 @@ void calc_view_factors()
 void gameQuant(void)
 {
 	curGMap -> draw(1);
-	if(loadingStatus) LoadingMessage();
+	if(loadingStatus && aScrDisp) LoadingMessage();
 	curGMap -> flush();
 }
 
@@ -1905,7 +1905,7 @@ void iGameMap::draw(int self)
 {
 	static XBuffer status;
 	static int blink,clcnt;
-	
+
 	if(!MuteLog && ((ConTimer.counter&7) == 0)) {
 		SoundQuant();
 	}
@@ -1913,7 +1913,6 @@ void iGameMap::draw(int self)
 	if(GeneralSystemSkip) {
 		actIntQuant();
 	}
-	
 	uvsQuant();
 
 	if(GeneralSystemSkip && !ChangeWorldSkipQuant){
@@ -2064,13 +2063,17 @@ void iGameMap::draw(int self)
 #ifdef ACTINT
 		XGR_Obj.set_2d_render_buffer();
 		//XGR_Obj.fill(2);
-		if(GeneralSystemSkip) {
-			aScrDisp -> redraw();
+		if(aScrDisp) {
+			if(GeneralSystemSkip) {
+				aScrDisp -> redraw();
+			}
+			aScrDisp -> flush();
+			//aScrDisp->pal_flush();
 		}
-		aScrDisp -> flush();
-		//aScrDisp->pal_flush();
 		XGR_Obj.set_default_render_buffer();
-		aScrDisp -> text_redraw();
+		if(aScrDisp) {
+			aScrDisp -> text_redraw();
+		}
 #endif
 	};
 	

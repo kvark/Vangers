@@ -17,7 +17,7 @@ int main() {
     std::cout << "Engine version: " << vangers_get_version() << std::endl;
 
     // Create instance
-    void* instance = vangers_create_instance(640, 480);
+    void* instance = vangers_create_instance(640, 480, nullptr);
     if (!instance) {
         std::cerr << "Failed to create Vangers instance" << std::endl;
         vangers_engine_cleanup();

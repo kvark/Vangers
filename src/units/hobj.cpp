@@ -534,6 +534,9 @@ int WorldPalCurrent;
 
 void aciPrepareMenus(void);
 
+struct actIntDispatcher;
+extern actIntDispatcher* aScrDisp;
+
 void GeneralSystemOpen(void)
 {
 //	DBGCHECK;
@@ -547,10 +550,10 @@ void GeneralSystemOpen(void)
 	if(GeneralSystemSkip){
 		ChangeWorldConstraction = -1;
 		ChangeWorldSkipQuant = 0;			
-		aciPrepareMenus();
+		if(aScrDisp)
+			aciPrepareMenus();
 
 		PalCD.Init();
-
 		if(CurrentWorld < MAIN_WORLD_MAX - 1) WorldBorderEnable = 1;
 		else WorldBorderEnable = 0;
 		
@@ -561,7 +564,6 @@ void GeneralSystemOpen(void)
 	#else
 		Parser in(GetTargetName("level.lst"));
 	#endif
-
 		StaticOpen();
 
 //zNfo many game inits
@@ -574,9 +576,9 @@ void GeneralSystemOpen(void)
 
 		ItemD.Open(in);
 
-		FishD.Init();			//zNfo инициализация акул
-		HordeSourceD.Init();	//zNfo инициализацыя пассывных мухов
-		HordeD.Init();			//zNfo инициализацыя актывных мухов
+		FishD.Init();
+		HordeSourceD.Init();
+		HordeD.Init();
 
 		FarmerD.Init();
 		ClefD.Init();
@@ -1182,6 +1184,7 @@ void GameObjectDispatcher::DisconnectBaseList(BaseObject* p)
 
 
 int uvsMechosType_to_AciInt(int);
+extern actIntDispatcher* aScrDisp;
 
 void GameObjectDispatcher::Quant(void)
 {
@@ -1206,14 +1209,18 @@ void GameObjectDispatcher::Quant(void)
 		p = (VangerUnit*)(ActD.Tail);
 		while(p){
 			if(p->uvsPoint->shape == UVS_VANGER_SHAPE::GAMER_SLAVE){
-				aciAddTeleportMenuItem(uvsMechosType_to_AciInt(p->uvsPoint->Pmechos->type),i);
+				if(aScrDisp){
+					aciAddTeleportMenuItem(uvsMechosType_to_AciInt(p->uvsPoint->Pmechos->type),i);
+				}
 				p->VangerCloneID = i;
 				i++;
 			};
 			p = (VangerUnit*)(p->NextTypeList);
 		};
 
-		if(CurrentWorld  < MAIN_WORLD_MAX - 1 && (i - TELEPORT_ESCAVE_ID - 1) <= 5) aciAddTeleportMenuItem(-1,TELEPORT_ESCAVE_ID);
+		if(aScrDisp && CurrentWorld  < MAIN_WORLD_MAX - 1 && (i - TELEPORT_ESCAVE_ID - 1) <= 5) {
+			aciAddTeleportMenuItem(-1,TELEPORT_ESCAVE_ID);
+		}
 
 		GlobalTime = GLOBAL_CLOCK();
 		FirstQuant = 0;
@@ -1231,7 +1238,7 @@ void GameObjectDispatcher::Quant(void)
 //	DBGCHECK;
 #endif
 
-	if(ActD.Active)
+	if(ActD.Active && aScrDisp)
 		ActD.Active->NewKeyHandler();
 
 	p = (VangerUnit*)(ActD.Tail);
@@ -1304,14 +1311,18 @@ void GameObjectDispatcher::DrawQuant(void) {
 	};
 
 //	ActD.CameraQuant();
-	ActD.DrawResource();
+	if(aScrDisp) {
+		ActD.DrawResource();
+	}
 
 	//znfo network
 	if(NetworkON) {
 		CreatePhantomTarget();
 	}
-	CreateTabutaskTarget();
-	CompasObj.Quant();	
+	if(aScrDisp) {
+		CreateTabutaskTarget();
+		CompasObj.Quant();	
+	}
 };
 
 void setMapPixel(int px,int py,int col)

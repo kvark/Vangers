@@ -93,7 +93,7 @@ def load_engine_library(lib_path=None):
 
     # Instance management
     lib.vangers_create_instance.restype = ctypes.c_void_p
-    lib.vangers_create_instance.argtypes = [ctypes.c_int, ctypes.c_int]
+    lib.vangers_create_instance.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_void_p]
 
     lib.vangers_destroy_instance.restype = None
     lib.vangers_destroy_instance.argtypes = [ctypes.c_void_p]
@@ -163,7 +163,7 @@ class TestInstance:
 
     def create(self):
         """Create the instance."""
-        self.instance_ptr = self.lib.vangers_create_instance(self.width, self.height)
+        self.instance_ptr = self.lib.vangers_create_instance(self.width, self.height, None)
         if not self.instance_ptr:
             raise RuntimeError("Failed to create instance")
         return self.instance_ptr

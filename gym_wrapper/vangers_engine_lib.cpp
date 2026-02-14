@@ -28,6 +28,7 @@
 #include "../src/actint/item_api.h"
 #include "../src/units/uvsapi.h"
 #include "../src/network.h"
+#include "../src/sqexp.h"
 #include "../src/units/mechos.h"
 #include "../src/3d/3dobject.h"
  
@@ -59,6 +60,9 @@ extern VangerUnit* addVanger(uvsVanger* p, int x, int y, int Human);
 // Core engine entrypoints we call directly (real engine in same repo exposes these)
 extern void gameQuant();
 extern void FIRE_ALL_WEAPONS();
+extern void vMapPrepare(const char* name, int nWorld);
+extern void vMapInit(void);
+extern void MLload(void);
 
 // The main game may export a current game map pointer; declare it opaque here.
 extern iGameMap* curGMap;
@@ -143,16 +147,64 @@ bool GameSimulation::initialize() {
         this->legacy_real_rndval_ = 12345;
          
         // Initialize core 3D engine tables and draw buffers
+        std::cout << "Calling graph3d_init()..." << std::endl;
         graph3d_init();
-         
-        // Initialize general object systems, dispatchers, palettes, resources, etc.
-        GeneralSystemInit();
+        std::cout << "graph3d_init() done." << std::endl;
+
+        // Initialize offscreen graphics if headless mode is requested or SDL driver is set.
+        bool want_headless = headless_mode_;
+        const char* sdl_driver = std::getenv("SDL_VIDEODRIVER");
+        if (!want_headless && sdl_driver && sdl_driver[0] != '\0') {
+            want_headless = true;
+        }
+        if (want_headless) {
+            if (headless_mode_) {
+                // Ensure SDL uses dummy drivers before any SDL initialization occurs.
+                setenv("SDL_VIDEODRIVER", "dummy", 0);
+                setenv("SDL_AUDIODRIVER", "dummy", 0);
+            }
+            init_graphics_headless();
+        } else {
+            std::cout << "SDL_VIDEODRIVER not set; skipping XGR init (may be unstable for rendering)." << std::endl;
+            xgrScreenSizeX = screen_width_;
+            xgrScreenSizeY = screen_height_;
+        }
          
         // Prepare UVS (worlds, escaves, vangers, items)
+        std::cout << "Calling uniVangPrepare()..." << std::endl;
         uniVangPrepare();
+        std::cout << "uniVangPrepare() done." << std::endl;
+
+        // Initialize general object systems, dispatchers, palettes, resources, etc.
+        std::cout << "Calling GeneralSystemInit()..." << std::endl;
+        GeneralSystemInit();
+        std::cout << "GeneralSystemInit() done." << std::endl;
+
+        // Create a temporary world list file for gym usage
+        {
+            std::ofstream world_lst("gym_world.lst");
+            if (world_lst.is_open()) {
+                world_lst << "1\n";
+                world_lst << "Fostral thechain/fostral/world.ini\n";
+                world_lst.close();
+            } else {
+                std::cerr << "Failed to create gym_world.lst" << std::endl;
+            }
+        }
+
+        // Load default map to ensure path variables are set for GeneralSystemOpen
+        std::cout << "Calling vMapPrepare()..." << std::endl;
+        ::vMapPrepare("gym_world.lst", 0);
+        ::vMapInit();
+        std::cout << "vMapPrepare() done." << std::endl;
+        std::cout << "Calling MLload()..." << std::endl;
+        ::MLload();
+        std::cout << "MLload() done." << std::endl;
          
         // Finalize/open system resources into active structures
+        std::cout << "Calling GeneralSystemOpen()..." << std::endl;
         GeneralSystemOpen();
+        std::cout << "GeneralSystemOpen() done." << std::endl;
          
         // Try to spawn a player vanger from UVS into the active units and hook it up.
         // This attempts to connect the wrapper's `player_unit_` to a real engine VangerUnit.
@@ -227,6 +279,10 @@ void GameSimulation::shutdown() {
     player_unit_ = nullptr;
     game_map_ = nullptr;
 
+    if (headless_mode_) {
+        XGR_Finit();
+    }
+
     // Mark this simulation as not initialized (instance-local)
     set_game_initialized(false);
 }
@@ -262,36 +318,10 @@ void GameSimulation::step(int num_steps) {
     for (int i = 0; i < num_steps; i++) {
         frame_count_++;
         player_state_.step_count++;
-         
-        // Apply basic physics simulation
-        float dt = time_scale_ / 50.0f; // Assume 50fps target
-         
-        // Apply drag/friction
-        player_state_.vel_x *= 0.95f;
-        player_state_.vel_y *= 0.95f;
-        player_state_.vel_z *= 0.95f;
-         
-        // Update position based on velocity
-        player_state_.pos_x += player_state_.vel_x * dt;
-        player_state_.pos_y += player_state_.vel_y * dt;
-        player_state_.pos_z += player_state_.vel_z * dt;
-         
-        // Keep player on ground (simple terrain following)
-        if (player_state_.pos_z < 0) {
-            player_state_.pos_z = 0;
-            player_state_.vel_z = 0;
-            player_state_.on_ground = true;
-        }
-         
-        // Update speed based on velocity magnitude
-        player_state_.speed = (int)sqrt(player_state_.vel_x * player_state_.vel_x + 
-                                        player_state_.vel_y * player_state_.vel_y);
-         
-        // Simulate energy consumption and regeneration
-        if (player_state_.speed > 0) {
-            player_state_.energy = std::max(0, player_state_.energy - 1);
-        } else if (player_state_.energy < player_state_.energy_max) {
-            player_state_.energy = std::min(player_state_.energy_max, player_state_.energy + 1);
+        
+        // Execute one quantum of the game engine
+        if (curGMap) {
+            gameQuant();
         }
          
         last_physics_time_ = frame_count_;
@@ -309,54 +339,9 @@ void GameSimulation::set_time_scale(float scale) {
 }
 
 void GameSimulation::apply_action(const Action& action) {
-    // Apply action to minimal player state simulation
-    float acceleration = 50.0f; // Base acceleration
-     
-    // Movement
-    if (action.movement == Action::FORWARD && player_state_.energy > 0) {
-        float cos_angle = cos(player_state_.angle);
-        float sin_angle = sin(player_state_.angle);
-        player_state_.vel_x += cos_angle * acceleration;
-        player_state_.vel_y += sin_angle * acceleration;
-    } else if (action.movement == Action::BACKWARD && player_state_.energy > 0) {
-        float cos_angle = cos(player_state_.angle);
-        float sin_angle = sin(player_state_.angle);
-        player_state_.vel_x -= cos_angle * acceleration * 0.5f; // Reverse is slower
-        player_state_.vel_y -= sin_angle * acceleration * 0.5f;
-    }
-     
-    // Steering (only when moving)
-    if (player_state_.speed > 5) {
-        if (action.steering == Action::LEFT) {
-            player_state_.angle -= 0.1f;
-        } else if (action.steering == Action::RIGHT) {
-            player_state_.angle += 0.1f;
-        }
-    }
-     
-    // Normalize angle to [0, 2*PI)
-    while (player_state_.angle < 0) player_state_.angle += 2.0f * M_PI;
-    while (player_state_.angle >= 2.0f * M_PI) player_state_.angle -= 2.0f * M_PI;
-     
-    // Cap maximum velocity
-    float max_vel = player_state_.max_speed;
-    float vel_mag = sqrt(player_state_.vel_x * player_state_.vel_x + 
-                        player_state_.vel_y * player_state_.vel_y);
-    if (vel_mag > max_vel) {
-        player_state_.vel_x = (player_state_.vel_x / vel_mag) * max_vel;
-        player_state_.vel_y = (player_state_.vel_y / vel_mag) * max_vel;
-    }
-     
-    // Fire action (simple implementation - just consume energy)
-    if (action.fire == Action::FIRE && player_state_.energy >= 10) {
-        player_state_.energy -= 10;
-         
-        std::cout << "Applying action: move=" << action.movement 
-                  << " steer=" << action.steering 
-                  << " fire=" << action.fire
-                  << " sp1=" << action.special1
-                  << " sp2=" << action.special2 << std::endl;
-    }
+    // TODO: Map action to engine inputs (VangerUnit control flags or key injection)
+    // For now, just logging or relying on AI if enabled.
+    (void)action;
 }
 
 void GameSimulation::render_frame(unsigned char* buffer, int width, int height) {
@@ -474,10 +459,24 @@ void GameSimulation::create_game_map() {
         return;
     }
 
-    // Fail when no engine map is present. The wrapper assumes a full engine and
-    // will not operate with a minimal stubbed map.
+    // Create a fallback iGameMap if the engine did not create one during boot.
+    // This mirrors the core engine's initialization path and is sufficient for headless RL.
+    int cx = xgrScreenSizeX > 0 ? xgrScreenSizeX / 2 : XGR_MAXX / 2;
+    int cy = xgrScreenSizeY > 0 ? xgrScreenSizeY / 2 : XGR_MAXY / 2;
+    int xside = std::max(1, cx);
+    int yside = std::max(1, cy);
+
+    try {
+        curGMap = new iGameMap(cx, cy, xside, yside);
+        game_map_ = curGMap;
+        std::cout << "Created fallback game map (curGMap) for headless mode" << std::endl;
+        return;
+    } catch (...) {
+        // Fall through to failure.
+    }
+
     game_map_ = nullptr;
-    std::cerr << "Error: No engine curGMap available; cannot continue in full-engine mode." << std::endl;
+    std::cerr << "Error: Failed to create fallback game map (curGMap)." << std::endl;
 }
 
 void GameSimulation::setup_deterministic_mode() {
@@ -584,6 +583,13 @@ GameEngineInstance::GameEngineInstance(int width, int height)
     simulation_ = std::make_unique<GameSimulation>(width, height);
 }
 
+void GameEngineInstance::set_headless_mode(bool headless) {
+    headless_mode_ = headless;
+    if (simulation_) {
+        simulation_->set_headless_mode(headless);
+    }
+}
+
 GameEngineInstance::~GameEngineInstance() {
     shutdown();
 }
@@ -675,6 +681,11 @@ int GameEngineInstance::step_simulation(int num_steps) {
         return 1;
     }
 
+    VangerUnit* real_unit = nullptr;
+    if (simulation_) {
+        real_unit = simulation_->get_player_unit();
+    }
+
     // Simple profiling / timing for this step invocation
     using clock = std::chrono::steady_clock;
     auto t0 = clock::now();
@@ -689,19 +700,19 @@ int GameEngineInstance::step_simulation(int num_steps) {
         // Perform deterministic stepping: for each logical frame, apply the action and advance physics
         for (int f = 0; f < num_steps; ++f) {
             // If the engine provided a real VangerUnit and a real map, drive the real engine.
-            if (player_unit_) {
+            if (real_unit) {
                 // Map our wrapper Action to engine controls. Use the engine's CONTROLS enum.
                 // Movement
                 if (action.movement == Action::FORWARD) {
-                    player_unit_->controls(CONTROLS::TRACTION_INCREASE);
+                    real_unit->controls(CONTROLS::TRACTION_INCREASE);
                 } else if (action.movement == Action::BACKWARD) {
-                    player_unit_->controls(CONTROLS::TRACTION_DECREASE);
+                    real_unit->controls(CONTROLS::TRACTION_DECREASE);
                 }
                 // Steering
                 if (action.steering == Action::LEFT) {
-                    player_unit_->controls(CONTROLS::STEER_LEFT);
+                    real_unit->controls(CONTROLS::STEER_LEFT);
                 } else if (action.steering == Action::RIGHT) {
-                    player_unit_->controls(CONTROLS::STEER_RIGHT);
+                    real_unit->controls(CONTROLS::STEER_RIGHT);
                 }
                 // Fire - use high-level fire entrypoint used by the engine
                 if (action.fire == Action::FIRE) {
@@ -709,10 +720,10 @@ int GameEngineInstance::step_simulation(int num_steps) {
                 }
                 // Specials mapped to virtual up/down controls (example mapping)
                 if (action.special1 == Action::USE_SPECIAL) {
-                    player_unit_->controls(CONTROLS::VIRTUAL_UP);
+                    real_unit->controls(CONTROLS::VIRTUAL_UP);
                 }
                 if (action.special2 == Action::USE_SPECIAL) {
-                    player_unit_->controls(CONTROLS::VIRTUAL_DOWN);
+                    real_unit->controls(CONTROLS::VIRTUAL_DOWN);
                 }
 
                 // Advance the engine's main quant/step routine deterministically.
@@ -970,13 +981,19 @@ InstanceManager::~InstanceManager() {
 }
 
 void* InstanceManager::create_instance(int width, int height) {
-    std::lock_guard<std::mutex> lock(instances_mutex_);
+    return create_instance_with_options(width, height, false);
+}
 
+void* InstanceManager::create_instance_with_options(int width, int height, bool headless) {
     void* id = reinterpret_cast<void*>(next_id_.fetch_add(1));
     auto instance = std::make_unique<GameEngineInstance>(width, height);
+    instance->set_headless_mode(headless);
 
     if (instance->initialize()) {
-        instances_[id] = std::move(instance);
+        {
+            std::lock_guard<std::mutex> lock(instances_mutex_);
+            instances_[id] = std::move(instance);
+        }
         std::cout << "Created gym instance: " << id << " (" << width << "x" << height << ")" << std::endl;
         return id;
     } else {
@@ -986,24 +1003,26 @@ void* InstanceManager::create_instance(int width, int height) {
 }
 
 void InstanceManager::destroy_instance(void* handle) {
-    std::lock_guard<std::mutex> lock(instances_mutex_);
-
-    auto it = instances_.find(handle);
-    if (it != instances_.end()) {
-        std::cout << "Destroying gym instance: " << handle << std::endl;
-        // Ensure the instance is cleanly shut down before erasing it from the map.
-        // This avoids duplicate shutdown messages and gives the instance a chance
-        // to release resources deterministically.
-        try {
-            if (it->second) {
-                it->second->shutdown();
-            }
-        } catch (...) {
-            // Best-effort: ignore exceptions during shutdown to avoid throwing from destructor paths.
+    std::unique_ptr<GameEngineInstance> instance;
+    {
+        std::lock_guard<std::mutex> lock(instances_mutex_);
+        auto it = instances_.find(handle);
+        if (it == instances_.end()) {
+            std::cerr << "Attempted to destroy non-existent instance: " << handle << std::endl;
+            return;
         }
+        instance = std::move(it->second);
         instances_.erase(it);
-    } else {
-        std::cerr << "Attempted to destroy non-existent instance: " << handle << std::endl;
+    }
+
+    std::cout << "Destroying gym instance: " << handle << std::endl;
+    // Ensure the instance is cleanly shut down after releasing the manager lock.
+    try {
+        if (instance) {
+            instance->shutdown();
+        }
+    } catch (...) {
+        // Best-effort: ignore exceptions during shutdown to avoid throwing from destructor paths.
     }
 }
 
@@ -1205,9 +1224,10 @@ void vangers_engine_cleanup() {
 
     InstanceManager::instance().cleanup_all();
     InstanceManager::instance().set_gym_mode(false);
+    XGR_Finit();
 }
 
-void* vangers_create_instance(int width, int height) {
+void* vangers_create_instance(int width, int height, const VangersCreateOptions* options) {
     if (!InstanceManager::instance().get_gym_mode()) {
         std::cerr << "Engine not initialized - call vangers_engine_init() first" << std::endl;
         return nullptr;
@@ -1218,7 +1238,12 @@ void* vangers_create_instance(int width, int height) {
         return nullptr;
     }
 
-    return InstanceManager::instance().create_instance(width, height);
+    bool headless = false;
+    if (options && options->size >= sizeof(VangersCreateOptions)) {
+        headless = (options->headless != 0);
+    }
+
+    return InstanceManager::instance().create_instance_with_options(width, height, headless);
 }
 
 void vangers_destroy_instance(void* instance) {

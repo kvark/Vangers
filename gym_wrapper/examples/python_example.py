@@ -1,18 +1,4 @@
 #!/usr/bin/env python3
-"""
-Vectorized Vangers Environment Example
-
-This example demonstrates the key advantages of the vectorized environment:
-1. Multiple game instances running in parallel
-2. In-process execution with deterministic stepping
-3. High performance for RL training
-4. Direct memory access without socket overhead
-
-Usage:
-    python vectorized_example.py --num-envs 8 --steps 10000
-    python vectorized_example.py --benchmark --num-envs 16
-    python vectorized_example.py --train-agent --algorithm ppo
-"""
 
 import argparse
 import time

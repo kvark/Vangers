@@ -30,10 +30,14 @@ from typing import Optional, Tuple, Dict, Any, List, Union
 
 import ctypes
 import numpy as np
+import threading
 
 import gymnasium as gym  # type: ignore
 from gymnasium import spaces  # type: ignore
 _EnvBase = gym.Env
+
+# Global re-entrant lock to serialize C-library calls across threads
+_C_API_LOCK = threading.RLock()
 
 
 
@@ -80,6 +84,13 @@ class GameEvent(ctypes.Structure):
     ]
 
 
+class VangersCreateOptions(ctypes.Structure):
+    _fields_ = [
+        ("size", ctypes.c_uint32),
+        ("headless", ctypes.c_int),
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Library loader (strict: shared library required)
 # ---------------------------------------------------------------------------
@@ -102,6 +113,10 @@ class VangersEngineLib:
     DEFAULT_RESOURCE_PATH = "/x/Work/VangersData"
 
     def __init__(self, lib_path: Optional[str] = None):
+        # Optionally enable SDL dummy drivers for headless runs.
+        if os.environ.get("VANGERS_HEADLESS_SDL", "").lower() in ("1", "true", "yes"):
+            os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+            os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
         self.lib_path = lib_path or self._find_engine_library()
         # Attempt to load the library
         try:
@@ -286,7 +301,7 @@ class VangersEngineLib:
 
         # Instance management
         lib.vangers_create_instance.restype = ctypes.c_void_p
-        lib.vangers_create_instance.argtypes = [ctypes.c_int, ctypes.c_int]
+        lib.vangers_create_instance.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.POINTER(VangersCreateOptions)]
 
         lib.vangers_destroy_instance.restype = None
         lib.vangers_destroy_instance.argtypes = [ctypes.c_void_p]
@@ -344,10 +359,15 @@ class VangersEngineLib:
         """
         Initialize the engine using the canonical resource path.
         Prefer `vangers_engine_init_with_path` when available so the engine
-        can find its data at /x/Work/VangersData.
+        can find its data at /x/Work/VangersData or a path override.
         """
         lib = self._lib
-        resource_path = self.DEFAULT_RESOURCE_PATH.encode("utf-8")
+        resource_path_str = (
+            os.environ.get("VANGERS_DATA_PATH")
+            or os.environ.get("VANGERS_RESOURCE_PATH")
+            or self.DEFAULT_RESOURCE_PATH
+        )
+        resource_path = resource_path_str.encode("utf-8")
 
         if hasattr(lib, "vangers_engine_init_with_path"):
             res = lib.vangers_engine_init_with_path(ctypes.c_char_p(resource_path))
@@ -361,8 +381,14 @@ class VangersEngineLib:
             raise RuntimeError("Loaded library does not expose an initialization function")
 
     # Thin wrapper methods
-    def create_instance(self, width: int, height: int):
-        return self._lib.vangers_create_instance(int(width), int(height))
+    def create_instance(self, width: int, height: int, headless: Optional[bool] = None):
+        options_ptr = None
+        if headless is not None:
+            options = VangersCreateOptions()
+            options.size = ctypes.sizeof(VangersCreateOptions)
+            options.headless = int(bool(headless))
+            options_ptr = ctypes.pointer(options)
+        return self._lib.vangers_create_instance(int(width), int(height), options_ptr)
 
     def destroy_instance(self, instance_ptr):
         if instance_ptr is None:
@@ -379,11 +405,12 @@ class VangersEngineLib:
         return int(self._lib.vangers_step_simulation(instance_ptr, int(num_steps)))
 
     def set_time_scale(self, instance_ptr, scale: float):
-        if hasattr(self._lib, "vangers_set_time_scale"):
-            try:
-                self._lib.vangers_set_time_scale(instance_ptr, ctypes.c_float(scale))
-            except Exception:
-                pass
+        with _C_API_LOCK:
+            if hasattr(self._lib, "vangers_set_time_scale"):
+                try:
+                    self._lib.vangers_set_time_scale(instance_ptr, ctypes.c_float(scale))
+                except Exception:
+                    pass
 
     def pause_simulation(self, instance_ptr, paused: bool):
         if hasattr(self._lib, "vangers_pause_simulation"):
@@ -421,11 +448,12 @@ class VangersEngineLib:
                 pass
 
     def set_render_mode(self, instance_ptr, mode: int):
-        if hasattr(self._lib, "vangers_set_render_mode"):
-            try:
-                self._lib.vangers_set_render_mode(instance_ptr, int(mode))
-            except Exception:
-                pass
+        with _C_API_LOCK:
+            if hasattr(self._lib, "vangers_set_render_mode"):
+                try:
+                    self._lib.vangers_set_render_mode(instance_ptr, int(mode))
+                except Exception:
+                    pass
 
     def set_physics_substeps(self, instance_ptr, substeps: int):
         if hasattr(self._lib, "vangers_set_physics_substeps"):
@@ -461,15 +489,23 @@ class VangersInstance:
     Wraps a single engine instance.
     """
 
-    def __init__(self, engine_lib: VangersEngineLib, width: int = 640, height: int = 480):
+    def __init__(self, engine_lib: VangersEngineLib, width: int = 640, height: int = 480, headless: Optional[bool] = None):
         self.engine_lib = engine_lib
         self.width = int(width)
         self.height = int(height)
+        self.headless = headless
 
-        # Create instance in engine
-        self.instance_ptr = self.engine_lib.create_instance(self.width, self.height)
-        if not self.instance_ptr:
-            raise RuntimeError("Failed to create Vangers engine instance")
+        # Create instance in engine (serialized)
+        with _C_API_LOCK:
+            self.instance_ptr = self.engine_lib.create_instance(self.width, self.height, self.headless)
+            if not self.instance_ptr:
+                raise RuntimeError("Failed to create Vangers engine instance")
+            # Ensure the engine renders to an offscreen framebuffer so get_frame_buffer updates
+            try:
+                # 1: offscreen framebuffer; 2: onscreen (if supported). Default to 1.
+                self.engine_lib.set_render_mode(self.instance_ptr, 1)
+            except Exception:
+                pass
 
         # Buffers
         self.player_state = PlayerState()
@@ -489,23 +525,24 @@ class VangersInstance:
             pass
 
     def reset(self) -> Tuple[Dict[str, np.ndarray], Dict[str, Any]]:
-        res = self.engine_lib.reset_instance(self.instance_ptr)
-        if res != 1:
-            # Attempt to recover by recreating the engine instance
-            try:
-                if getattr(self, "instance_ptr", None):
-                    self.engine_lib.destroy_instance(self.instance_ptr)
-            except Exception:
-                pass
-            # Recreate instance
-            new_ptr = self.engine_lib.create_instance(self.width, self.height)
-            if not new_ptr:
-                raise RuntimeError("Failed to recreate Vangers engine instance during reset")
-            self.instance_ptr = new_ptr
-            # Try resetting again
-            res2 = self.engine_lib.reset_instance(self.instance_ptr)
-            if res2 != 1:
-                raise RuntimeError(f"Failed to reset instance after recreation: {res2}")
+        with _C_API_LOCK:
+            res = self.engine_lib.reset_instance(self.instance_ptr)
+            if res != 1:
+                # Attempt to recover by recreating the engine instance
+                try:
+                    if getattr(self, "instance_ptr", None):
+                        self.engine_lib.destroy_instance(self.instance_ptr)
+                except Exception:
+                    pass
+                # Recreate instance
+                new_ptr = self.engine_lib.create_instance(self.width, self.height, self.headless)
+                if not new_ptr:
+                    raise RuntimeError("Failed to recreate Vangers engine instance during reset")
+                self.instance_ptr = new_ptr
+                # Try resetting again
+                res2 = self.engine_lib.reset_instance(self.instance_ptr)
+                if res2 != 1:
+                    raise RuntimeError(f"Failed to reset instance after recreation: {res2}")
 
         self.step_count = 0
         self.total_reward = 0.0
@@ -525,51 +562,50 @@ class VangersInstance:
         if action.shape[0] < 5:
             raise ValueError("Action must have length >= 5")
 
-        # send action
-        self.engine_lib.set_action(self.instance_ptr,
-                                   int(action[0]), int(action[1]), int(action[2]), int(action[3]), int(action[4]))
-
-        total_reward = 0.0
-        for _ in range(num_substeps):
-            ok = self.engine_lib.step_simulation(self.instance_ptr, 1)
-            if ok != 1:
-                # treat as termination
-                self.done = True
-                break
-
-            # Update player state (direct wrapper call)
-            self.engine_lib.get_player_state(self.instance_ptr, ctypes.byref(self.player_state))
-
-            # Process events for reward
-            total_reward += self._process_events()
+        # send action and step (serialized)
+        with _C_API_LOCK:
+            self.engine_lib.set_action(self.instance_ptr,
+                                       int(action[0]), int(action[1]), int(action[2]), int(action[3]), int(action[4]))
+            total_reward = 0.0
+            for _ in range(num_substeps):
+                ok = self.engine_lib.step_simulation(self.instance_ptr, 1)
+                if ok != 1:
+                    # treat as termination
+                    self.done = True
+                    break
+                # Update player state (direct wrapper call)
+                self.engine_lib.get_player_state(self.instance_ptr, ctypes.byref(self.player_state))
+                # Process events for reward
+                total_reward += self._process_events()
+            observation = self._get_observation()
+            recent_events = self._get_recent_events()
 
         self.step_count += 1
         self.total_reward += total_reward
 
-        observation = self._get_observation()
+        # observation already fetched under lock
 
         terminated = self.done or not bool(self.player_state.alive)
         truncated = self.step_count >= 10000
 
         info = self._get_info()
-        info['events'] = self._get_recent_events()
+        info['events'] = recent_events
 
         return observation, total_reward, terminated, truncated, info
 
     def _get_observation(self) -> Dict[str, np.ndarray]:
-        # Refresh state
-        try:
-            self.engine_lib.get_player_state(self.instance_ptr, ctypes.byref(self.player_state))
-        except Exception:
-            pass
-
-        # Frame buffer
-        try:
-            ptr = self.frame_buffer.ctypes.data_as(ctypes.POINTER(ctypes.c_ubyte))
-            buffer_size = int(self.frame_buffer.size)
-            self.engine_lib.get_frame_buffer(self.instance_ptr, ptr, buffer_size)
-        except Exception:
-            pass
+        # Refresh state and frame buffer (serialized)
+        with _C_API_LOCK:
+            try:
+                self.engine_lib.get_player_state(self.instance_ptr, ctypes.byref(self.player_state))
+            except Exception:
+                pass
+            try:
+                ptr = self.frame_buffer.ctypes.data_as(ctypes.POINTER(ctypes.c_ubyte))
+                buffer_size = int(self.frame_buffer.size)
+                self.engine_lib.get_frame_buffer(self.instance_ptr, ptr, buffer_size)
+            except Exception:
+                pass
 
         # compact state vector
         st = np.array([
@@ -603,11 +639,12 @@ class VangersInstance:
     def _process_events(self) -> float:
         reward = 0.0
 
-        # If engine provides events
-        try:
-            num = self.engine_lib.get_events(self.instance_ptr, self.events_buffer, len(self.events_buffer))
-        except Exception:
-            num = 0
+        # If engine provides events (serialized)
+        with _C_API_LOCK:
+            try:
+                num = self.engine_lib.get_events(self.instance_ptr, self.events_buffer, len(self.events_buffer))
+            except Exception:
+                num = 0
 
         if num <= 0:
             # small alive + movement bonus
@@ -627,10 +664,11 @@ class VangersInstance:
             elif ev.type == 3:
                 reward -= float(ev.value) * 0.01
 
-        try:
-            self.engine_lib.clear_events(self.instance_ptr)
-        except Exception:
-            pass
+        with _C_API_LOCK:
+            try:
+                self.engine_lib.clear_events(self.instance_ptr)
+            except Exception:
+                pass
 
         reward += 0.1
         reward += float(self.player_state.speed) * 0.001
@@ -652,10 +690,11 @@ class VangersInstance:
 
     def _get_recent_events(self) -> List[Dict[str, Any]]:
         events: List[Dict[str, Any]] = []
-        try:
-            num = self.engine_lib.get_events(self.instance_ptr, self.events_buffer, len(self.events_buffer))
-        except Exception:
-            num = 0
+        with _C_API_LOCK:
+            try:
+                num = self.engine_lib.get_events(self.instance_ptr, self.events_buffer, len(self.events_buffer))
+            except Exception:
+                num = 0
 
         for i in range(num):
             ev = self.events_buffer[i]
@@ -685,6 +724,7 @@ class VangersVectorizedEnv(object):
         engine_lib_path: Optional[str] = None,
         render_mode: Optional[str] = None,
         reward_scale: float = 1.0,
+        headless: Optional[bool] = None,
     ):
         self.num_envs = int(num_envs)
         self.screen_width = int(screen_width)
@@ -696,7 +736,7 @@ class VangersVectorizedEnv(object):
 
         self.engine_lib = VangersEngineLib(engine_lib_path)
         self.instances = [
-            VangersInstance(self.engine_lib, screen_width, screen_height)
+            VangersInstance(self.engine_lib, screen_width, screen_height, headless=headless)
             for _ in range(self.num_envs)
         ]
 
@@ -813,13 +853,28 @@ class VangersVectorizedEnv(object):
 
 
 class VangersEnv(_EnvBase):
-    def __init__(self, width: int = 640, height: int = 480, render_mode: Optional[str] = None, engine_lib_path: Optional[str] = None):
+    def __init__(
+        self,
+        width: int = 640,
+        height: int = 480,
+        render_mode: Optional[str] = None,
+        engine_lib_path: Optional[str] = None,
+        headless: Optional[bool] = None,
+    ):
         self.width = int(width)
         self.height = int(height)
         self.render_mode = render_mode
 
         self.engine_lib = VangersEngineLib(engine_lib_path)
-        self.instance = VangersInstance(self.engine_lib, width, height)
+        self.instance = VangersInstance(self.engine_lib, width, height, headless=headless)
+        # Align engine render mode with requested render_mode (prefer offscreen for rgb_array)
+        try:
+            if self.render_mode == "human":
+                self.engine_lib.set_render_mode(self.instance.instance_ptr, 2)
+            else:
+                self.engine_lib.set_render_mode(self.instance.instance_ptr, 1)
+        except Exception:
+            pass
 
         if spaces is not None:
             self.action_space = spaces.MultiDiscrete([3, 3, 2, 2, 2])

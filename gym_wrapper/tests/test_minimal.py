@@ -78,7 +78,7 @@ def load_library(lib_path):
 
     # Instance management
     lib.vangers_create_instance.restype = ctypes.c_void_p
-    lib.vangers_create_instance.argtypes = [ctypes.c_int, ctypes.c_int]
+    lib.vangers_create_instance.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_void_p]
 
     lib.vangers_destroy_instance.restype = None
     lib.vangers_destroy_instance.argtypes = [ctypes.c_void_p]
@@ -142,7 +142,7 @@ def test_basic_functionality():
 
         # Create instance
         width, height = 320, 240
-        instance = lib.vangers_create_instance(width, height)
+        instance = lib.vangers_create_instance(width, height, None)
         if not instance:
             print("Failed to create instance")
             lib.vangers_engine_cleanup()
@@ -256,7 +256,7 @@ def test_multiple_instances():
         # Create multiple instances
         instances = []
         for i in range(3):
-            instance = lib.vangers_create_instance(160, 120)
+            instance = lib.vangers_create_instance(160, 120, None)
             if instance:
                 instances.append(instance)
                 print(f"Created instance {i + 1}: {hex(instance)}")

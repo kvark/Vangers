@@ -19,6 +19,9 @@
 #include "../terra/world.h"
 #include "../terra/render.h"
 
+struct actIntDispatcher;
+extern actIntDispatcher* aScrDisp;
+
 #include "../iscreen/controls.h"
 #include "../iscreen/iscreen_options.h"
 
@@ -8737,7 +8740,8 @@ void CompasObject::AddTarget(int id,UnitOrderType d,char* n1,const char* n2)
 	if(n2){
 		p->aciName = new char[strlen(n2) + 1];
 		strcpy(p->aciName,n2);
-		aciAdd2Targets(p->aciName);
+		if(aScrDisp)
+			aciAdd2Targets(p->aciName);
 	}else p->aciName = NULL;
 
 	p->Data.ActionT = d.ActionT;
