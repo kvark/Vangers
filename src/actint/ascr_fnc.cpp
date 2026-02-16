@@ -1582,6 +1582,7 @@ void change_screen(int mode)
 
 void aciSendEvent2actint(int code,actintItemData* p,int data)
 {
+	if(!aScrDisp) return;
 	aScrDisp -> send_event(code,data,p);
 }
 

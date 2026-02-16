@@ -7,11 +7,13 @@
 #include <fstream>
 #include <sstream>
 #include <memory>
+#include <cerrno>
 #include <vector>
 #include <algorithm>
 #include <cmath>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <limits.h>
 #include <string>
 #include <dlfcn.h>
 #include <cstdint>
@@ -29,7 +31,14 @@
 #include "../src/units/uvsapi.h"
 #include "../src/network.h"
 #include "../src/sqexp.h"
+#include "../src/backg.h"
+#include "../src/particle/df.h"
+#include "../src/particle/partmap.h"
 #include "../src/units/mechos.h"
+#include "../src/units/hobj.h"
+#include "../src/terra/vmap.h"
+#include "../src/units/items.h"
+#include "../src/units/effect.h"
 #include "../src/3d/3dobject.h"
  
 extern XGR_Screen XGR_Obj;
@@ -50,12 +59,34 @@ extern int xgrScreenSizeY;
 struct uvsVanger;
 struct VangerUnit;
 struct iGameMap;
+struct uvsWorld;
+struct SensorDataType;
 
 // Minimal forward declarations for functions we call into the engine core.
 // Implementations are provided by the engine core when linked into the
 // shared `vangers_engine` target.
 extern uvsVanger* FindFreeVanger();
 extern VangerUnit* addVanger(uvsVanger* p, int x, int y, int Human);
+extern GameObjectDispatcher GameD;
+extern EffectDispatcher EffD;
+extern ItemsDispatcher ItemD;
+extern int* SI;
+extern int* CO;
+extern void costab(void);
+extern void GeneralTableInit(void);
+extern void GeneralTableOpen(void);
+extern void PrepareLight(void);
+extern void uvsAddStationaryObjs(void);
+extern int loadingStatus;
+extern int Redraw;
+extern int StartMainQuantFlag;
+extern unsigned char* palbufOrg;
+
+// UVS/world globals used for targeted diagnostics.
+extern int CurrentWorld;
+extern uvsWorld* WorldTable[];
+extern int ProtoCryptTableSize[];
+extern SensorDataType* ProtoCryptTable[];
 
 // Core engine entrypoints we call directly (real engine in same repo exposes these)
 extern void gameQuant();
@@ -150,6 +181,10 @@ bool GameSimulation::initialize() {
         std::cout << "Calling graph3d_init()..." << std::endl;
         graph3d_init();
         std::cout << "graph3d_init() done." << std::endl;
+        if (!SI || !CO) {
+            costab();
+        }
+        GeneralTableInit();
 
         // Initialize offscreen graphics if headless mode is requested or SDL driver is set.
         bool want_headless = headless_mode_;
@@ -181,20 +216,23 @@ bool GameSimulation::initialize() {
         std::cout << "GeneralSystemInit() done." << std::endl;
 
         // Create a temporary world list file for gym usage
+        const char* world_lst_path = "/tmp/gym_world.lst";
         {
-            std::ofstream world_lst("gym_world.lst");
+            std::ofstream world_lst(world_lst_path);
             if (world_lst.is_open()) {
                 world_lst << "1\n";
                 world_lst << "Fostral thechain/fostral/world.ini\n";
                 world_lst.close();
             } else {
-                std::cerr << "Failed to create gym_world.lst" << std::endl;
+                std::cerr << "Failed to create gym_world.lst"
+                          << " (path=" << world_lst_path << ", errno=" << errno << " " << strerror(errno) << ")"
+                          << std::endl;
             }
         }
 
         // Load default map to ensure path variables are set for GeneralSystemOpen
         std::cout << "Calling vMapPrepare()..." << std::endl;
-        ::vMapPrepare("gym_world.lst", 0);
+        ::vMapPrepare(world_lst_path, 0);
         ::vMapInit();
         std::cout << "vMapPrepare() done." << std::endl;
         std::cout << "Calling MLload()..." << std::endl;
@@ -205,6 +243,42 @@ bool GameSimulation::initialize() {
         std::cout << "Calling GeneralSystemOpen()..." << std::endl;
         GeneralSystemOpen();
         std::cout << "GeneralSystemOpen() done." << std::endl;
+
+        // Complete world initialization steps that normally run during loading.
+        std::cout << "Calling GeneralTableOpen()..." << std::endl;
+        GeneralTableOpen();
+        std::cout << "GeneralTableOpen() done." << std::endl;
+        std::cout << "Calling PrepareLight()..." << std::endl;
+        PrepareLight();
+        std::cout << "PrepareLight() done." << std::endl;
+        try {
+            std::cout << "Calling EffD.CalcWave()..." << std::endl;
+            EffD.CalcWave();
+            std::cout << "EffD.CalcWave() done." << std::endl;
+        } catch (...) {
+            std::cout << "Warning: EffD.CalcWave() failed; continuing." << std::endl;
+        }
+
+        // Ensure the current game map exists before any initial quant passes.
+        if (!game_map_) {
+            create_game_map();
+        }
+
+        loadingStatus = 0;
+        Redraw = 1;
+        if (vMap) {
+            std::cout << "Calling vMap->quant()..." << std::endl;
+            vMap->quant();
+            std::cout << "vMap->quant() done." << std::endl;
+        }
+        std::cout << "Calling uvsAddStationaryObjs()..." << std::endl;
+        uvsAddStationaryObjs();
+        std::cout << "uvsAddStationaryObjs() done." << std::endl;
+        gameQuant();
+        gameQuant();
+        StartMainQuantFlag = 1;
+        gameQuant();
+        XGR_SetPal(palbufOrg, 0, 255);
          
         // Try to spawn a player vanger from UVS into the active units and hook it up.
         // This attempts to connect the wrapper's `player_unit_` to a real engine VangerUnit.
@@ -353,12 +427,26 @@ void GameSimulation::render_frame(unsigned char* buffer, int width, int height) 
     }
 
     // Attempt to obtain the internal XGR screen buffers.
-    uint8_t* screen_indexes = XGR_Obj.get_default_render_buffer();
+    // Prefer the currently active buffer because the engine can switch
+    // between default and 2D buffers depending on draw phase.
+    uint8_t* screen_indexes = XGR_Obj.get_active_render_buffer();
+    if (!screen_indexes) {
+        screen_indexes = XGR_Obj.get_default_render_buffer();
+    }
     uint32_t* screen2d_rgba = XGR_Obj.get_2d_rgba_render_buffer();
     uint8_t* screen2d_indexes = XGR_Obj.get_2d_render_buffer();
 
     // If XGR is initialized and matches requested size, use it.
     if (screen_indexes && xgrScreenSizeX == width && xgrScreenSizeY == height) {
+        // In headless mode we don't need UI overlays; clear 2D buffers to avoid artifacts.
+        if (headless_mode_) {
+            if (screen2d_rgba) {
+                std::memset(screen2d_rgba, 0, static_cast<size_t>(width) * height * sizeof(uint32_t));
+            }
+            if (screen2d_indexes) {
+                std::memset(screen2d_indexes, 0, static_cast<size_t>(width) * height);
+            }
+        }
         // Temporary RGBA buffer (32-bit values) filled by blitRgba
         std::vector<uint32_t> tmp_rgba;
         tmp_rgba.resize(width * height);
