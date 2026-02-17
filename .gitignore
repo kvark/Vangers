@@ -41,3 +41,10 @@ __pycache__
 
 # Server env file
 .env
+
+# Temporary outputs
+vangers_random_rollout.mp4
+
+# Agents (temp)
+AGENTS.md
+PLAN.md

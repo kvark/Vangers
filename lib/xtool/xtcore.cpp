@@ -592,6 +592,9 @@ int xtDispatchMessage(SDL_Event* msg)
 
 void xtClearMessageQueue(void)
 {
+	if(!XMsgBuf){
+		return;
+	}
 	SDL_Event event;
 	while(SDL_PollEvent(&event)) {
 		//std::cout<<"event "<<event.type<<std::endl;

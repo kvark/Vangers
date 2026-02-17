@@ -192,18 +192,13 @@ bool GameSimulation::initialize() {
         if (!want_headless && sdl_driver && sdl_driver[0] != '\0') {
             want_headless = true;
         }
-        if (want_headless) {
-            if (headless_mode_) {
-                // Ensure SDL uses dummy drivers before any SDL initialization occurs.
-                setenv("SDL_VIDEODRIVER", "dummy", 0);
-                setenv("SDL_AUDIODRIVER", "dummy", 0);
-            }
-            init_graphics_headless();
-        } else {
-            std::cout << "SDL_VIDEODRIVER not set; skipping XGR init (may be unstable for rendering)." << std::endl;
-            xgrScreenSizeX = screen_width_;
-            xgrScreenSizeY = screen_height_;
+        if (headless_mode_) {
+            // Ensure SDL uses dummy drivers before any SDL initialization occurs.
+            setenv("SDL_VIDEODRIVER", "dummy", 0);
+            setenv("SDL_AUDIODRIVER", "dummy", 0);
         }
+        // Initialize XGR/SDL surfaces regardless of headless mode so palette ops are safe.
+        init_graphics_headless();
          
         // Prepare UVS (worlds, escaves, vangers, items)
         std::cout << "Calling uniVangPrepare()..." << std::endl;
@@ -274,10 +269,7 @@ bool GameSimulation::initialize() {
         std::cout << "Calling uvsAddStationaryObjs()..." << std::endl;
         uvsAddStationaryObjs();
         std::cout << "uvsAddStationaryObjs() done." << std::endl;
-        gameQuant();
-        gameQuant();
         StartMainQuantFlag = 1;
-        gameQuant();
         XGR_SetPal(palbufOrg, 0, 255);
          
         // Try to spawn a player vanger from UVS into the active units and hook it up.
@@ -769,11 +761,6 @@ int GameEngineInstance::step_simulation(int num_steps) {
         return 1;
     }
 
-    VangerUnit* real_unit = nullptr;
-    if (simulation_) {
-        real_unit = simulation_->get_player_unit();
-    }
-
     // Simple profiling / timing for this step invocation
     using clock = std::chrono::steady_clock;
     auto t0 = clock::now();
@@ -787,6 +774,12 @@ int GameEngineInstance::step_simulation(int num_steps) {
 
         // Perform deterministic stepping: for each logical frame, apply the action and advance physics
         for (int f = 0; f < num_steps; ++f) {
+            // Resolve the active player unit each frame to avoid stale pointers.
+            VangerUnit* real_unit = ActD.Active ? ActD.Active : (simulation_ ? simulation_->get_player_unit() : nullptr);
+            if (real_unit && (real_unit->Status & SOBJ_DISCONNECT)) {
+                real_unit = nullptr;
+            }
+
             // If the engine provided a real VangerUnit and a real map, drive the real engine.
             if (real_unit) {
                 // Map our wrapper Action to engine controls. Use the engine's CONTROLS enum.
@@ -819,13 +812,11 @@ int GameEngineInstance::step_simulation(int num_steps) {
                     gameQuant();
                 }
 
-            } else if (simulation_) {
-                // Defensive fallback (should not be taken in "full engine" mode)
-                simulation_->apply_action(action);
-                simulation_->step(substeps);
             } else {
-                std::cerr << "No engine simulation or player unit available to step" << std::endl;
-                return 0;
+                // No active player unit; still advance the engine to keep world state valid.
+                for (int s = 0; s < substeps; ++s) {
+                    gameQuant();
+                }
             }
 
             // Increment the simulation step counter in terms of internal physics steps

@@ -853,6 +853,7 @@ class VangersVectorizedEnv(object):
 
 
 class VangersEnv(_EnvBase):
+    metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 20}
     def __init__(
         self,
         width: int = 640,
@@ -905,7 +906,8 @@ class VangersEnv(_EnvBase):
         elif rm == "human":
             try:
                 import cv2
-                cv2.imshow("VangersEnv", self.instance.frame_buffer)
+                bgr = cv2.cvtColor(self.instance.frame_buffer, cv2.COLOR_RGB2BGR)
+                cv2.imshow("VangersEnv", bgr)
                 cv2.waitKey(1)
             except Exception:
                 return self.instance.frame_buffer

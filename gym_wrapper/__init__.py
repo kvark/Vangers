@@ -48,6 +48,7 @@ __all__ = [
     "find_embedded_library",
     "find_engine_library",
     "load_engine",
+    "register_gym_env",
     "ENGINE_LIB_PATH",
     "ENGINE",
     "__version__",
@@ -58,6 +59,30 @@ __version__ = "0.1.0"
 # Global holders for loaded library/path
 ENGINE = None  # type: Optional[ctypes.CDLL]
 ENGINE_LIB_PATH: Optional[str] = None
+
+
+def register_gym_env(env_id: str = "Vangers-v0", **kwargs) -> None:
+    """
+    Register the Gymnasium environment so gymnasium.make(env_id) works.
+
+    Args:
+        env_id: Gymnasium environment id.
+        **kwargs: Default keyword args passed to the entry point.
+    """
+    try:
+        import gymnasium as gym  # type: ignore
+        from gymnasium.envs.registration import registry  # type: ignore
+    except Exception as e:
+        raise ImportError("gymnasium is required to register the Vangers environment") from e
+
+    if env_id in registry:
+        return
+
+    gym.register(
+        id=env_id,
+        entry_point="gym_wrapper.vangers_env:VangersEnv",
+        kwargs=kwargs,
+    )
 
 
 def get_default_library_name() -> str:
