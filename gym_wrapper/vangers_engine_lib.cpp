@@ -38,7 +38,7 @@
 #include "../src/units/mechos.h"
 #include "../src/units/hobj.h"
 #include "../src/terra/vmap.h"
-#include "../src/3d/3dobject.h"
+#include "../src/iscreen/controls.h"
 #include "../src/units/items.h"
 #include "../src/units/effect.h"
 #include "../src/3d/3dobject.h"
@@ -97,6 +97,20 @@ extern void FIRE_ALL_WEAPONS();
 extern void vMapPrepare(const char* name, int nWorld);
 extern void vMapInit(void);
 extern void MLload(void);
+extern int* iControlsObj;
+extern int iGetKeyID(int key);
+extern void iSetControlCode(int id,int key,int num);
+extern void camera_reset();
+extern int camera_moving_xy_enable;
+extern int camera_moving_z_enable;
+extern int camera_slope_enable;
+extern int camera_rotate_enable;
+extern int stop_camera;
+extern int ViewX;
+extern int ViewY;
+extern int preViewY;
+extern int camera_zmin;
+extern int TurnSecX;
 
 // The main game may export a current game map pointer; declare it opaque here.
 extern iGameMap* curGMap;
@@ -116,31 +130,45 @@ static std::string g_gym_mechos_name;
 using namespace vangers_engine;
 
 static Action g_gym_action;
-static void gym_control_hook(Object* obj) {
-    if (!obj) {
-        return;
-    }
+
+static int gym_key_override(int id) {
     const Action action = g_gym_action;
-    if (action.movement == Action::FORWARD) {
-        obj->controls(CONTROLS::TRACTION_INCREASE);
-    } else if (action.movement == Action::BACKWARD) {
-        obj->controls(CONTROLS::TRACTION_DECREASE);
-    }
-    if (action.steering == Action::LEFT) {
-        obj->controls(CONTROLS::STEER_LEFT);
-    } else if (action.steering == Action::RIGHT) {
-        obj->controls(CONTROLS::STEER_RIGHT);
-    }
-    if (action.special1 == Action::USE_SPECIAL) {
-        obj->controls(CONTROLS::VIRTUAL_UP);
-    }
-    if (action.special2 == Action::USE_SPECIAL) {
-        obj->controls(CONTROLS::VIRTUAL_DOWN);
+    switch (id) {
+        case iKEY_MOVE_FORWARD:
+            return action.movement == Action::FORWARD ? 1 : 0;
+        case iKEY_MOVE_BACKWARD:
+            return action.movement == Action::BACKWARD ? 1 : 0;
+        case iKEY_TURN_WHEELS_LEFT:
+            return action.steering == Action::LEFT ? 1 : 0;
+        case iKEY_TURN_WHEELS_RIGHT:
+            return action.steering == Action::RIGHT ? 1 : 0;
+        case iKEY_DEVICE_ON:
+            return action.special1 == Action::USE_SPECIAL ? 1 : 0;
+        case iKEY_DEVICE_OFF:
+            return action.special2 == Action::USE_SPECIAL ? 1 : 0;
+        default:
+            return -1;
     }
 }
 
-extern void (*g_gym_control_hook)(Object* obj);
-extern Object* g_gym_control_target;
+#ifdef VANGERS_GYM
+extern int (*g_gym_key_override)(int id);
+#endif
+
+static void ensure_control_bindings() {
+    if (!iControlsObj) {
+        return;
+    }
+    iSetControlCode(iKEY_MOVE_FORWARD, SDLK_UP, 0);
+    iSetControlCode(iKEY_MOVE_BACKWARD, SDLK_DOWN, 0);
+    iSetControlCode(iKEY_TURN_WHEELS_LEFT, SDLK_LEFT, 0);
+    iSetControlCode(iKEY_TURN_WHEELS_RIGHT, SDLK_RIGHT, 0);
+    iSetControlCode(iKEY_ACCELERATION, SDLK_LSHIFT, 0);
+    iSetControlCode(iKEY_ACTIVATE_KID, SDLK_INSERT, 0);
+    iSetControlCode(iKEY_DEVICE_ON, SDLK_z, 0);
+    iSetControlCode(iKEY_DEVICE_OFF, SDLK_HOME, 0);
+    iSetControlCode(iKEY_HANDBRAKE, SDLK_x, 0);
+}
 
 // Global state for gym integration is now managed by InstanceManager and
 // per-GameSimulation instance members. See InstanceManager::set_gym_mode/get_gym_mode
@@ -352,8 +380,18 @@ bool GameSimulation::initialize() {
 
     // Setup event hooks
     setup_event_hooks();
-    g_gym_control_hook = gym_control_hook;
-    g_gym_control_target = nullptr;
+#ifdef VANGERS_GYM
+    g_gym_key_override = gym_key_override;
+    ensure_control_bindings();
+#endif
+
+    // Enable default chase camera behavior (matches game settings).
+    camera_moving_xy_enable = 1;
+    camera_moving_z_enable = 1;
+    camera_slope_enable = 1;
+    camera_rotate_enable = 1;
+    stop_camera = 0;
+    camera_reset();
 
     // Require the engine to provide a real player unit - do not create a placeholder.
     if (!player_unit_) {
@@ -395,12 +433,11 @@ void GameSimulation::shutdown() {
     if (headless_mode_) {
         XGR_Finit();
     }
-    if (g_gym_control_hook == gym_control_hook) {
-        g_gym_control_hook = nullptr;
+#ifdef VANGERS_GYM
+    if (g_gym_key_override == gym_key_override) {
+        g_gym_key_override = nullptr;
     }
-    if (g_gym_control_target) {
-        g_gym_control_target = nullptr;
-    }
+#endif
 
     // Mark this simulation as not initialized (instance-local)
     set_game_initialized(false);
@@ -836,7 +873,6 @@ int GameEngineInstance::step_simulation(int num_steps) {
             // If the engine provided a real VangerUnit and a real map, drive the real engine.
             if (real_unit) {
                 g_gym_action = action;
-                g_gym_control_target = real_unit;
                 // Advance the engine's main quant/step routine deterministically.
                 for (int s = 0; s < substeps; ++s) {
                     if (action.fire == Action::FIRE) {
@@ -844,8 +880,14 @@ int GameEngineInstance::step_simulation(int num_steps) {
                     }
 
                     gameQuant();
+                    // Fallback chase camera for headless/gym path.
+                    if (ActD.Active) {
+                        ViewX = ActD.Active->R_curr.x;
+                        ViewY = ActD.Active->R_curr.y;
+                        preViewY = ViewY;
+                        TurnSecX = camera_zmin;
+                    }
                 }
-                g_gym_control_target = nullptr;
             } else {
                 // No active player unit; still advance the engine to keep world state valid.
                 for (int s = 0; s < substeps; ++s) {
@@ -1107,7 +1149,7 @@ void* InstanceManager::create_instance_with_options(int width, int height, bool 
             std::lock_guard<std::mutex> lock(instances_mutex_);
             instances_[id] = std::move(instance);
         }
-        std::cout << "Created gym instance: " << id << " (" << width << "x" << height << ")" << std::endl;
+        
         return id;
     } else {
         std::cerr << "Failed to initialize gym instance" << std::endl;
@@ -1128,7 +1170,7 @@ void InstanceManager::destroy_instance(void* handle) {
         instances_.erase(it);
     }
 
-    std::cout << "Destroying gym instance: " << handle << std::endl;
+    
     // Ensure the instance is cleanly shut down after releasing the manager lock.
     try {
         if (instance) {
@@ -1152,7 +1194,7 @@ GameEngineInstance* InstanceManager::get_instance(void* handle) {
 
 void InstanceManager::cleanup_all() {
     std::lock_guard<std::mutex> lock(instances_mutex_);
-    std::cout << "Cleaning up all gym instances (" << instances_.size() << ")" << std::endl;
+    
     instances_.clear();
 }
 
@@ -1318,7 +1360,7 @@ int vangers_engine_init_with_path(const char* resource_path) {
         }
     }
 
-    std::cout << "Initializing Vangers gym engine library v1.0.0 (resources: " << path << ")" << std::endl;
+    
     InstanceManager::instance().set_gym_mode(true);
     return 1;
 }
@@ -1337,7 +1379,7 @@ void vangers_engine_cleanup() {
         return;
     }
 
-    std::cout << "Cleaning up Vangers gym engine library" << std::endl;
+    
 
     InstanceManager::instance().cleanup_all();
     InstanceManager::instance().set_gym_mode(false);
@@ -1504,7 +1546,7 @@ void vangers_set_physics_substeps(void* instance, int substeps) {
 }
 
 void vangers_set_debug_mode(bool enabled) {
-    std::cout << "Vangers gym debug mode: " << (enabled ? "ENABLED" : "DISABLED") << std::endl;
+    
 }
 
 const char* vangers_get_version() {

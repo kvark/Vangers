@@ -53,6 +53,11 @@ int iGetKeyID(int key);
 int iKeyPressed(int id);
 int iCheckKeyID(int id,int key);
 
+// Optional override for input (used by gym wrapper). Return -1 to fall back to SDL state.
+#ifdef VANGERS_GYM
+extern int (*g_gym_key_override)(int id);
+#endif
+
 void iInitControls(void);
 void iResetControls(void);
 void iInitControlObjects(void);

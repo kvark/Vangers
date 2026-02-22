@@ -83,6 +83,7 @@ if(BUILD_SHARED_ENGINE)
         -DACTINT
         -D_BINARY_SCRIPT_
     )
+    target_compile_definitions(vangers_core PRIVATE VANGERS_GYM)
 
     target_include_directories(vangers_core PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/../src
@@ -109,6 +110,7 @@ if(BUILD_SHARED_ENGINE)
     target_compile_options(vangers_engine PRIVATE
         -Wall -Wextra
     )
+    target_compile_definitions(vangers_engine PRIVATE VANGERS_GYM)
 
     if(JSONCPP_FOUND)
         target_compile_definitions(vangers_engine PRIVATE -DHAVE_JSONCPP)

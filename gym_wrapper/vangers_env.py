@@ -398,7 +398,7 @@ class VangersEngineLib:
         if hasattr(self._lib, "vangers_set_mechos_name"):
             self._lib.vangers_set_mechos_name(ctypes.c_char_p(name.encode("utf-8")))
         else:
-            print("[vangers] warning: vangers_set_mechos_name not available in engine library")
+            return
 
     # Thin wrapper methods
     def create_instance(self, width: int, height: int, headless: Optional[bool] = None):

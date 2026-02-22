@@ -144,10 +144,6 @@ def main() -> int:
         env.engine_lib.set_mechos_name(DEFAULT_MECHOS_NAME)
     except Exception:
         pass
-    try:
-        print(f"[record] engine lib path: {getattr(env.engine_lib, 'lib_path', 'unknown')}")
-    except Exception:
-        pass
 
     obs, info = env.reset(seed=int(time.time()))
 

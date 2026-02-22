@@ -238,6 +238,10 @@ iKeyControls::iKeyControls(void)
 	memset(flags,0,iKEY_MAX_ID * sizeof(int));
 }
 
+#ifdef VANGERS_GYM
+int (*g_gym_key_override)(int id) = nullptr;
+#endif
+
 void iSaveControls(void)
 {
 	if(!iControlsObj || RecorderMode) return;
@@ -270,6 +274,15 @@ int iKeyPressed(int id)
 	int i,code, state = 0;
 	SDL_Joystick *joy = get_joystick();
 	SDL_GameController *ctrl = get_gamecontroller();
+
+#ifdef VANGERS_GYM
+	if (g_gym_key_override) {
+		int v = g_gym_key_override(id);
+		if (v >= 0) {
+			return v;
+		}
+	}
+#endif
 
 	if(!iControlsObj) return 0;
 	for(i = 0; i < iKEY_OBJECT_SIZE; i ++){

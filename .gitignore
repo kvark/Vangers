@@ -44,6 +44,8 @@ __pycache__
 
 # Temporary outputs
 vangers_random_rollout.mp4
+/*.npz
+/*.jsonl
 
 # Agents (temp)
 AGENTS.md
