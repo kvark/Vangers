@@ -29,6 +29,7 @@
 #include "../lib/xgraph/xgraph.h"
 #include "../src/actint/item_api.h"
 #include "../src/units/uvsapi.h"
+#include "../src/uvs/univang.h"
 #include "../src/network.h"
 #include "../src/sqexp.h"
 #include "../src/backg.h"
@@ -37,6 +38,7 @@
 #include "../src/units/mechos.h"
 #include "../src/units/hobj.h"
 #include "../src/terra/vmap.h"
+#include "../src/3d/3dobject.h"
 #include "../src/units/items.h"
 #include "../src/units/effect.h"
 #include "../src/3d/3dobject.h"
@@ -81,6 +83,7 @@ extern int loadingStatus;
 extern int Redraw;
 extern int StartMainQuantFlag;
 extern unsigned char* palbufOrg;
+extern ModelDispatcher ModelD;
 
 // UVS/world globals used for targeted diagnostics.
 extern int CurrentWorld;
@@ -107,7 +110,37 @@ extern iGameMap* curGMap;
 // but wrapper state (player_state, deterministic seeds, init flags, and gym-mode)
 // are instance-managed to allow safer testing and potential multi-instance use.
 
+static std::string g_gym_mechos_name;
+
+
 using namespace vangers_engine;
+
+static Action g_gym_action;
+static void gym_control_hook(Object* obj) {
+    if (!obj) {
+        return;
+    }
+    const Action action = g_gym_action;
+    if (action.movement == Action::FORWARD) {
+        obj->controls(CONTROLS::TRACTION_INCREASE);
+    } else if (action.movement == Action::BACKWARD) {
+        obj->controls(CONTROLS::TRACTION_DECREASE);
+    }
+    if (action.steering == Action::LEFT) {
+        obj->controls(CONTROLS::STEER_LEFT);
+    } else if (action.steering == Action::RIGHT) {
+        obj->controls(CONTROLS::STEER_RIGHT);
+    }
+    if (action.special1 == Action::USE_SPECIAL) {
+        obj->controls(CONTROLS::VIRTUAL_UP);
+    }
+    if (action.special2 == Action::USE_SPECIAL) {
+        obj->controls(CONTROLS::VIRTUAL_DOWN);
+    }
+}
+
+extern void (*g_gym_control_hook)(Object* obj);
+extern Object* g_gym_control_target;
 
 // Global state for gym integration is now managed by InstanceManager and
 // per-GameSimulation instance members. See InstanceManager::set_gym_mode/get_gym_mode
@@ -266,9 +299,7 @@ bool GameSimulation::initialize() {
             vMap->quant();
             std::cout << "vMap->quant() done." << std::endl;
         }
-        std::cout << "Calling uvsAddStationaryObjs()..." << std::endl;
         uvsAddStationaryObjs();
-        std::cout << "uvsAddStationaryObjs() done." << std::endl;
         StartMainQuantFlag = 1;
         XGR_SetPal(palbufOrg, 0, 255);
          
@@ -283,7 +314,21 @@ bool GameSimulation::initialize() {
         if (pv) {
             VangerUnit* vv = nullptr;
             try {
-                vv = addVanger(pv, xgrScreenSizeX / 2, xgrScreenSizeY / 2, 1);
+                uvsEscave* esc = nullptr;
+                if (WorldTable[0] && WorldTable[0]->escTmax > 0) {
+                    esc = WorldTable[0]->escT[0];
+                }
+                if (esc) {
+                    vv = addVanger(pv, esc, 1);
+                } else {
+                    vv = addVanger(pv, xgrScreenSizeX / 2, xgrScreenSizeY / 2, 1);
+                }
+                if (vv && !g_gym_mechos_name.empty()) {
+                    const int model_id = ModelD.FindModel(g_gym_mechos_name.c_str());
+                    if (model_id >= 0) {
+                        vv->SetMechos(model_id);
+                    }
+                }
             } catch (...) {
                 vv = nullptr;
             }
@@ -307,6 +352,8 @@ bool GameSimulation::initialize() {
 
     // Setup event hooks
     setup_event_hooks();
+    g_gym_control_hook = gym_control_hook;
+    g_gym_control_target = nullptr;
 
     // Require the engine to provide a real player unit - do not create a placeholder.
     if (!player_unit_) {
@@ -326,8 +373,8 @@ bool GameSimulation::initialize() {
         }
     }
 
-    frame_count_ = 0;
-    last_physics_time_ = 0;
+        frame_count_ = 0;
+        last_physics_time_ = 0;
 
     std::cout << "Game simulation initialized successfully" << std::endl;
     return true;
@@ -347,6 +394,12 @@ void GameSimulation::shutdown() {
 
     if (headless_mode_) {
         XGR_Finit();
+    }
+    if (g_gym_control_hook == gym_control_hook) {
+        g_gym_control_hook = nullptr;
+    }
+    if (g_gym_control_target) {
+        g_gym_control_target = nullptr;
     }
 
     // Mark this simulation as not initialized (instance-local)
@@ -384,7 +437,7 @@ void GameSimulation::step(int num_steps) {
     for (int i = 0; i < num_steps; i++) {
         frame_count_++;
         player_state_.step_count++;
-        
+
         // Execute one quantum of the game engine
         if (curGMap) {
             gameQuant();
@@ -782,36 +835,17 @@ int GameEngineInstance::step_simulation(int num_steps) {
 
             // If the engine provided a real VangerUnit and a real map, drive the real engine.
             if (real_unit) {
-                // Map our wrapper Action to engine controls. Use the engine's CONTROLS enum.
-                // Movement
-                if (action.movement == Action::FORWARD) {
-                    real_unit->controls(CONTROLS::TRACTION_INCREASE);
-                } else if (action.movement == Action::BACKWARD) {
-                    real_unit->controls(CONTROLS::TRACTION_DECREASE);
-                }
-                // Steering
-                if (action.steering == Action::LEFT) {
-                    real_unit->controls(CONTROLS::STEER_LEFT);
-                } else if (action.steering == Action::RIGHT) {
-                    real_unit->controls(CONTROLS::STEER_RIGHT);
-                }
-                // Fire - use high-level fire entrypoint used by the engine
-                if (action.fire == Action::FIRE) {
-                    FIRE_ALL_WEAPONS();
-                }
-                // Specials mapped to virtual up/down controls (example mapping)
-                if (action.special1 == Action::USE_SPECIAL) {
-                    real_unit->controls(CONTROLS::VIRTUAL_UP);
-                }
-                if (action.special2 == Action::USE_SPECIAL) {
-                    real_unit->controls(CONTROLS::VIRTUAL_DOWN);
-                }
-
+                g_gym_action = action;
+                g_gym_control_target = real_unit;
                 // Advance the engine's main quant/step routine deterministically.
                 for (int s = 0; s < substeps; ++s) {
+                    if (action.fire == Action::FIRE) {
+                        FIRE_ALL_WEAPONS();
+                    }
+
                     gameQuant();
                 }
-
+                g_gym_control_target = nullptr;
             } else {
                 // No active player unit; still advance the engine to keep world state valid.
                 for (int s = 0; s < substeps; ++s) {
@@ -1292,6 +1326,10 @@ int vangers_engine_init_with_path(const char* resource_path) {
 int vangers_engine_init() {
     // Default initialization uses the known data path
     return vangers_engine_init_with_path("/x/Work/VangersData");
+}
+
+void vangers_set_mechos_name(const char* name) {
+    g_gym_mechos_name = name ? name : "";
 }
 
 void vangers_engine_cleanup() {

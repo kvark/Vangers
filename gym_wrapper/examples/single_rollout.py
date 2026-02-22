@@ -12,11 +12,14 @@ import os
 import time
 import argparse
 
-# Ensure we can import the vangers_env module from the parent directory
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+DEFAULT_MECHOS_NAME = "OxidizeMonk"
+
+# Ensure repo root is on sys.path so "import gym_wrapper" works when run from source.
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(REPO_ROOT)
 
 try:
-    from vangers_env import VangersEnv
+    from gym_wrapper.vangers_env import VangersEnv
 except ImportError:
     # Fallback if running from a different location or package not installed
     try:
@@ -28,7 +31,7 @@ except ImportError:
         sys.exit(1)
 
 
-def run_rollout(width=640, height=480, fps=30):
+def run_rollout(width=640, height=480, fps=30, headless=True, render=True):
     print(f"Initializing Vangers Environment ({width}x{height})...")
 
     # Initialize the environment
@@ -37,7 +40,9 @@ def run_rollout(width=640, height=480, fps=30):
         env = VangersEnv(
             width=width,
             height=height,
-            render_mode="human"
+            render_mode="human" if render else None,
+            headless=headless,
+            mechos_name=DEFAULT_MECHOS_NAME,
         )
     except FileNotFoundError as e:
         print(f"\nError: {e}")
@@ -67,7 +72,8 @@ def run_rollout(width=640, height=480, fps=30):
             # Render the current frame
             # In 'human' mode, this tries to show a cv2 window
             # If cv2 is not installed, it might just return the frame buffer
-            env.render()
+            if render:
+                env.render()
 
             # Sample a random action
             # The action space is MultiDiscrete: [move, turn, fire, special1, special2]
@@ -110,7 +116,11 @@ if __name__ == "__main__":
     parser.add_argument("--width", type=int, default=640, help="Screen width")
     parser.add_argument("--height", type=int, default=480, help="Screen height")
     parser.add_argument("--fps", type=int, default=30, help="Target FPS limit")
+    parser.add_argument("--headless", action="store_true", default=True, help="Use SDL dummy driver")
+    parser.add_argument("--no-headless", dest="headless", action="store_false", help="Disable SDL dummy driver")
+    parser.add_argument("--render", action="store_true", default=True, help="Render to window")
+    parser.add_argument("--no-render", dest="render", action="store_false", help="Disable rendering")
 
     args = parser.parse_args()
 
-    run_rollout(width=args.width, height=args.height, fps=args.fps)
+    run_rollout(width=args.width, height=args.height, fps=args.fps, headless=args.headless, render=args.render)

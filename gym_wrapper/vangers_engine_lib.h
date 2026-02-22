@@ -461,6 +461,7 @@ extern "C" {
     int vangers_engine_init();
     int vangers_engine_init_with_path(const char* resource_path);
     void vangers_engine_cleanup();
+    void vangers_set_mechos_name(const char* name);
     
     // Debugging and diagnostics
     void vangers_set_debug_mode(bool enabled);

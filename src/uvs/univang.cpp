@@ -800,6 +800,7 @@ void uniVangPrepare(void){
 		case Z_MODS_TEST_ID:		{ MechosID =  5; break; } // дряхлый душегуб
 		default: MechosID = 5; // дряхлый душегуб
 	}
+	
 	v -> Pescave -> Pshop -> sellMechos(v -> Pmechos, MechosID);
 	v -> Pmechos -> type = MechosID;
 	//zNfo  /DEFAULT MECHOS 
@@ -835,6 +836,7 @@ void GeneralSystemInit(void);
 void GeneralSystemFree(void);
 void GeneralSystemClose(void);
 void GeneralSystemOpen(void);
+int GetMechos_as_name(char* s);
 
 extern uchar* palbufOrg;
 extern uchar* palbufSrc;

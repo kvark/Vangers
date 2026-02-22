@@ -112,19 +112,31 @@ class VangersEngineLib:
 
     DEFAULT_RESOURCE_PATH = "/x/Work/VangersData"
 
-    def __init__(self, lib_path: Optional[str] = None):
+    def __init__(self, lib_path: Optional[str] = None, resource_path: Optional[str] = None, mechos_name: Optional[str] = None):
         # Optionally enable SDL dummy drivers for headless runs.
         if os.environ.get("VANGERS_HEADLESS_SDL", "").lower() in ("1", "true", "yes"):
             os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
             os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
         self.lib_path = lib_path or self._find_engine_library()
+        self.resource_path = resource_path
+        self._mechos_name = mechos_name
         # Attempt to load the library
         try:
             self._lib: ctypes.CDLL = ctypes.CDLL(self.lib_path)
         except Exception as e:
             raise FileNotFoundError(f"Failed to load Vangers engine shared library at {self.lib_path}: {e}")
         self._bind_functions()
+        if self._mechos_name:
+            try:
+                self.set_mechos_name(self._mechos_name)
+            except Exception:
+                pass
         self._init_engine()
+        if self._mechos_name:
+            try:
+                self.set_mechos_name(self._mechos_name)
+            except Exception:
+                pass
 
     def _find_engine_library(self) -> str:
         """
@@ -171,9 +183,9 @@ class VangersEngineLib:
         # since the CMake build places the shared library there by default.
         repo_root = Path(__file__).resolve().parents[1]
         candidate_dirs = [
+            repo_root / "build" / "gym_wrapper",
             repo_root / "build",
             repo_root / "lib",
-            Path(__file__).parent / "build",
             Path(__file__).parent / "lib",
             Path.cwd(),
             Path("/usr/local/lib"),
@@ -203,13 +215,14 @@ class VangersEngineLib:
 
         # 4) fallback hardcoded (also prefer repository build locations)
         possible_paths = [
+            str(repo_root / "build" / "gym_wrapper" / "libvangers_engine.so"),
             str(repo_root / "build" / "libvangers_engine.so"),
             str(repo_root / "lib" / "libvangers_engine.so"),
             "./libvangers_engine.so",
+            "./build/gym_wrapper/libvangers_engine.so",
             "./build/libvangers_engine.so",
             "./lib/libvangers_engine.so",
             str(Path(__file__).parent / "libvangers_engine.so"),
-            str(Path(__file__).parent / "build" / "libvangers_engine.so"),
             "/usr/local/lib/libvangers_engine.so",
             "/usr/lib/libvangers_engine.so",
         ]
@@ -293,6 +306,9 @@ class VangersEngineLib:
         if hasattr(lib, "vangers_engine_cleanup"):
             lib.vangers_engine_cleanup.restype = None
             lib.vangers_engine_cleanup.argtypes = []
+        if hasattr(lib, "vangers_set_mechos_name"):
+            lib.vangers_set_mechos_name.restype = None
+            lib.vangers_set_mechos_name.argtypes = [ctypes.c_char_p]
 
         # Version
         if hasattr(lib, "vangers_get_version"):
@@ -362,11 +378,7 @@ class VangersEngineLib:
         can find its data at /x/Work/VangersData or a path override.
         """
         lib = self._lib
-        resource_path_str = (
-            os.environ.get("VANGERS_DATA_PATH")
-            or os.environ.get("VANGERS_RESOURCE_PATH")
-            or self.DEFAULT_RESOURCE_PATH
-        )
+        resource_path_str = self.resource_path or os.environ.get("VANGERS_DATA_PATH") or os.environ.get("VANGERS_RESOURCE_PATH") or self.DEFAULT_RESOURCE_PATH
         resource_path = resource_path_str.encode("utf-8")
 
         if hasattr(lib, "vangers_engine_init_with_path"):
@@ -379,6 +391,14 @@ class VangersEngineLib:
                 raise RuntimeError(f"vangers_engine_init failed with code {res}")
         else:
             raise RuntimeError("Loaded library does not expose an initialization function")
+
+    def set_mechos_name(self, name: Optional[str]) -> None:
+        if not name:
+            return
+        if hasattr(self._lib, "vangers_set_mechos_name"):
+            self._lib.vangers_set_mechos_name(ctypes.c_char_p(name.encode("utf-8")))
+        else:
+            print("[vangers] warning: vangers_set_mechos_name not available in engine library")
 
     # Thin wrapper methods
     def create_instance(self, width: int, height: int, headless: Optional[bool] = None):
@@ -497,6 +517,11 @@ class VangersInstance:
 
         # Create instance in engine (serialized)
         with _C_API_LOCK:
+            try:
+                if getattr(self.engine_lib, "_mechos_name", None):
+                    self.engine_lib.set_mechos_name(self.engine_lib._mechos_name)
+            except Exception:
+                pass
             self.instance_ptr = self.engine_lib.create_instance(self.width, self.height, self.headless)
             if not self.instance_ptr:
                 raise RuntimeError("Failed to create Vangers engine instance")
@@ -725,6 +750,7 @@ class VangersVectorizedEnv(object):
         render_mode: Optional[str] = None,
         reward_scale: float = 1.0,
         headless: Optional[bool] = None,
+        mechos_name: Optional[str] = None,
     ):
         self.num_envs = int(num_envs)
         self.screen_width = int(screen_width)
@@ -734,7 +760,7 @@ class VangersVectorizedEnv(object):
         self.render_mode = render_mode
         self.reward_scale = float(reward_scale)
 
-        self.engine_lib = VangersEngineLib(engine_lib_path)
+        self.engine_lib = VangersEngineLib(engine_lib_path, mechos_name=mechos_name)
         self.instances = [
             VangersInstance(self.engine_lib, screen_width, screen_height, headless=headless)
             for _ in range(self.num_envs)
@@ -860,13 +886,15 @@ class VangersEnv(_EnvBase):
         height: int = 480,
         render_mode: Optional[str] = None,
         engine_lib_path: Optional[str] = None,
+        resource_path: Optional[str] = None,
+        mechos_name: Optional[str] = None,
         headless: Optional[bool] = None,
     ):
         self.width = int(width)
         self.height = int(height)
         self.render_mode = render_mode
 
-        self.engine_lib = VangersEngineLib(engine_lib_path)
+        self.engine_lib = VangersEngineLib(engine_lib_path, resource_path=resource_path, mechos_name=mechos_name)
         self.instance = VangersInstance(self.engine_lib, width, height, headless=headless)
         # Align engine render mode with requested render_mode (prefer offscreen for rgb_array)
         try:

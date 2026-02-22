@@ -17,6 +17,9 @@ import time
 import gymnasium as gym
 
 import sys
+
+DEFAULT_MECHOS_NAME = "OxidizeMonk"
+
 # Ensure repo root is on sys.path so "import gym_wrapper" works when run from source.
 repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(repo_root)
@@ -39,7 +42,13 @@ def main() -> int:
     if args.render and args.headless:
         args.headless = False
 
-    register_gym_env(args.env_id, width=args.width, height=args.height, headless=args.headless)
+    register_gym_env(
+        args.env_id,
+        width=args.width,
+        height=args.height,
+        headless=args.headless,
+        mechos_name=DEFAULT_MECHOS_NAME,
+    )
 
     render_mode = "human" if args.render else None
     env = gym.make(args.env_id, render_mode=render_mode)

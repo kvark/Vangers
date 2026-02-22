@@ -12,6 +12,8 @@ import os
 import sys
 import time
 
+DEFAULT_MECHOS_NAME = "OxidizeMonk"
+
 # Ensure we can import the vangers_env module from the parent directory
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -31,7 +33,13 @@ def run_smoke(data_path: str, width: int = 160, height: int = 120, timeout: int 
 
     try:
         print("[smoke] Creating env...", flush=True)
-        env = VangersEnv(width=width, height=height, render_mode="rgb_array", headless=headless)
+        env = VangersEnv(
+            width=width,
+            height=height,
+            render_mode="rgb_array",
+            headless=headless,
+            mechos_name=DEFAULT_MECHOS_NAME,
+        )
         print("[smoke] Env created", flush=True)
     except Exception as exc:
         print(f"[smoke] Env init failed: {exc}", flush=True)

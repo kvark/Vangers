@@ -29,6 +29,10 @@ struct ParticleProcess;
 
 #include "../iscreen/controls.h"
 
+// Optional external control hook (used by gym wrapper).
+void (*g_gym_control_hook)(Object* obj) = nullptr;
+Object* g_gym_control_target = nullptr;
+
 #undef random
 #define random(num) ((int)(((long)_rand()*(num)) >> 15))
 
@@ -2843,15 +2847,18 @@ void Object::analysis()
 	if(active){
 		prev_controls = current_controls;
 		current_controls = 0;
+		if (g_gym_control_hook && g_gym_control_target == this) {
+			g_gym_control_hook(this);
+		}
 		if(!aciKeyboardLocked){
 			entries_control();
 			if(!disable_control){
 				direct_keyboard_control();
 				/*if(JoystickMode)
 					direct_joystick_control();*/
-				}
 			}
 		}
+	}
 	if(interpolation_on){
 		import_controls();
 		}

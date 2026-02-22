@@ -16,6 +16,8 @@ import time
 
 import cv2
 
+DEFAULT_MECHOS_NAME = "OxidizeMonk"
+
 # Ensure we can import the vangers_env module from the parent directory
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -58,7 +60,13 @@ def main() -> int:
     if not writer.isOpened():
         raise RuntimeError("Failed to open video writer")
 
-    env = VangersEnv(width=args.width, height=args.height, render_mode="rgb_array", headless=args.headless)
+    env = VangersEnv(
+        width=args.width,
+        height=args.height,
+        render_mode="rgb_array",
+        headless=args.headless,
+        mechos_name=DEFAULT_MECHOS_NAME,
+    )
     try:
         env.reset(seed=int(time.time()))
         start = time.time()

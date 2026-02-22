@@ -8,9 +8,12 @@ from typing import Dict, List, Tuple
 import sys
 import os
 
-# Add parent directory to path
-sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-from vangers_env import VangersVectorizedEnv, make_vangers_env
+DEFAULT_MECHOS_NAME = "OxidizeMonk"
+
+# Ensure repo root is on sys.path so "import gym_wrapper" works when run from source.
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(REPO_ROOT)
+from gym_wrapper.vangers_env import VangersVectorizedEnv, make_vangers_env
 
 
 class VectorizedBenchmark:
@@ -29,7 +32,8 @@ class VectorizedBenchmark:
             screen_width=320,  # Smaller for better performance
             screen_height=240,
             frame_skip=4,
-            render_mode=None  # Headless for benchmarking
+            render_mode=None,  # Headless for benchmarking
+            mechos_name=DEFAULT_MECHOS_NAME,
         )
 
     def teardown(self):

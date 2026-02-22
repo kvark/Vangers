@@ -24,6 +24,8 @@ import tempfile
 import shutil
 from pathlib import Path
 from typing import Optional
+
+DEFAULT_MECHOS_NAME = "OxidizeMonk"
 # NOTE: This script intentionally does not auto-select or re-exec into a virtualenv.
 # Please run it explicitly with your virtualenv's Python interpreter, for example:
 #   ~/Venv/bin/python gym_wrapper/examples/train_and_render.py [args]
@@ -142,7 +144,13 @@ def make_vec_env_from_vangers(width: int, height: int, engine_lib_path: Optional
     channel-first images (C, H, W) as expected by SB3's PyTorch policies.
     """
     def _thunk():
-        return VangersEnv(width=width, height=height, render_mode=None, engine_lib_path=engine_lib_path)
+        return VangersEnv(
+            width=width,
+            height=height,
+            render_mode=None,
+            engine_lib_path=engine_lib_path,
+            mechos_name=DEFAULT_MECHOS_NAME,
+        )
     vec = DummyVecEnv([_thunk])
     # Wrap with VecTransposeImage to transpose HWC->CHW for the policy.
     try:
@@ -299,7 +307,12 @@ def renderer_in_memory_loop(
         return
 
     print("[renderer] Starting in-memory preview renderer.")
-    preview_env = VangersEnv(width=render_width, height=render_height, render_mode="rgb_array")
+    preview_env = VangersEnv(
+        width=render_width,
+        height=render_height,
+        render_mode="rgb_array",
+        mechos_name=DEFAULT_MECHOS_NAME,
+    )
     try:
         preview_env.engine_lib.set_render_mode(preview_env.instance.instance_ptr, 1)
     except Exception:
@@ -525,7 +538,12 @@ def renderer_loop(
     ckpt_dir = Path(checkpoint_dir)
     print("[renderer] Starting disk-based preview renderer; monitoring:", ckpt_dir)
 
-    preview_env = VangersEnv(width=render_width, height=render_height, render_mode="rgb_array")
+    preview_env = VangersEnv(
+        width=render_width,
+        height=render_height,
+        render_mode="rgb_array",
+        mechos_name=DEFAULT_MECHOS_NAME,
+    )
     try:
         preview_env.engine_lib.set_render_mode(preview_env.instance.instance_ptr, 1)
     except Exception:
